@@ -68,21 +68,99 @@ class VideoProcessor:
         
         cap.release()
         self.pose.close()
-        
+
         print(f"Processing complete! {frame_number} frames processed.")
-        
-        return {
+
+        # Build video data
+        video_data = {
             'fps': fps,
             'frame_count': frame_count,
             'width': width,
             'height': height,
             'frames': frames_data
         }
+
+        # Assess tracking quality
+        tracking_quality = self.assess_tracking_quality(video_data)
+        video_data['tracking_quality'] = tracking_quality
+
+        # Print tracking quality summary
+        print(f"\nTracking Quality Report:")
+        print(f"  Detection rate: {tracking_quality['detection_rate']*100:.1f}%")
+        print(f"  High confidence rate: {tracking_quality['high_confidence_rate']*100:.1f}%")
+        print(f"  Average confidence: {tracking_quality['average_confidence']:.3f}")
+
+        # Add warning if tracking quality is below threshold
+        if tracking_quality['detection_rate'] < 0.7:
+            print(f"  ⚠️  WARNING: Detection rate below 70% - video may not be suitable for analysis")
+
+        return video_data
     
+    def assess_tracking_quality(self, video_data):
+        """
+        Assess the quality of pose tracking across all frames.
+
+        Args:
+            video_data: Dictionary containing processed frame data
+
+        Returns:
+            dict: Tracking quality metrics including:
+                - detection_rate: Percentage of frames with pose detected (0-1)
+                - high_confidence_rate: Percentage of frames with avg confidence > 0.7 (0-1)
+                - average_confidence: Mean confidence across all detected frames (0-1)
+        """
+        frames = video_data['frames']
+        total_frames = len(frames)
+
+        if total_frames == 0:
+            return {
+                'detection_rate': 0.0,
+                'high_confidence_rate': 0.0,
+                'average_confidence': 0.0
+            }
+
+        # Count frames with pose detected
+        detected_frames = [f for f in frames if f['pose_detected']]
+        detection_rate = len(detected_frames) / total_frames
+
+        # Calculate confidence metrics for detected frames
+        if not detected_frames:
+            return {
+                'detection_rate': 0.0,
+                'high_confidence_rate': 0.0,
+                'average_confidence': 0.0
+            }
+
+        # Calculate average visibility (confidence) for each frame
+        frame_confidences = []
+        high_confidence_frames = 0
+
+        for frame in detected_frames:
+            landmarks = frame['landmarks']
+            if landmarks:
+                # Get visibility scores for all landmarks
+                visibilities = [lm['visibility'] for lm in landmarks.values()]
+                avg_visibility = sum(visibilities) / len(visibilities)
+                frame_confidences.append(avg_visibility)
+
+                # Count frames with high confidence (>0.7)
+                if avg_visibility > 0.7:
+                    high_confidence_frames += 1
+
+        # Calculate overall metrics
+        average_confidence = sum(frame_confidences) / len(frame_confidences) if frame_confidences else 0.0
+        high_confidence_rate = high_confidence_frames / total_frames
+
+        return {
+            'detection_rate': detection_rate,
+            'high_confidence_rate': high_confidence_rate,
+            'average_confidence': average_confidence
+        }
+
     def _extract_landmarks(self, pose_landmarks):
         """Extract key landmarks we need for swing analysis"""
         landmarks = {}
-        
+
         # Key landmarks for tennis swing analysis
         landmark_indices = {
             'left_shoulder': 11,
@@ -94,7 +172,7 @@ class VideoProcessor:
             'left_hip': 23,
             'right_hip': 24
         }
-        
+
         for name, idx in landmark_indices.items():
             landmark = pose_landmarks.landmark[idx]
             landmarks[name] = {
@@ -103,7 +181,7 @@ class VideoProcessor:
                 'z': landmark.z,
                 'visibility': landmark.visibility
             }
-        
+
         return landmarks
 
 
