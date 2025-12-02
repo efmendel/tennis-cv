@@ -2,15 +2,118 @@ import cv2
 import mediapipe as mp
 import numpy as np
 
+
+class PoseConfig:
+    """
+    Configuration class for MediaPipe Pose detection.
+
+    Attributes:
+        model_complexity (int): Complexity of pose model (0, 1, or 2)
+            0 = fastest, least accurate
+            1 = balanced (default)
+            2 = slowest, most accurate
+        static_image_mode (bool): Whether to treat each frame independently
+            False = optimize for video (default)
+            True = optimize for static images
+        min_detection_confidence (float): Minimum confidence for initial detection (0.0-1.0)
+        min_tracking_confidence (float): Minimum confidence for tracking (0.0-1.0)
+        smooth_landmarks (bool): Whether to smooth landmarks across frames
+    """
+
+    def __init__(
+        self,
+        model_complexity=1,
+        static_image_mode=False,
+        min_detection_confidence=0.5,
+        min_tracking_confidence=0.5,
+        smooth_landmarks=True
+    ):
+        # Validate parameters
+        if model_complexity not in [0, 1, 2]:
+            raise ValueError("model_complexity must be 0, 1, or 2")
+        if not 0.0 <= min_detection_confidence <= 1.0:
+            raise ValueError("min_detection_confidence must be between 0.0 and 1.0")
+        if not 0.0 <= min_tracking_confidence <= 1.0:
+            raise ValueError("min_tracking_confidence must be between 0.0 and 1.0")
+
+        self.model_complexity = model_complexity
+        self.static_image_mode = static_image_mode
+        self.min_detection_confidence = min_detection_confidence
+        self.min_tracking_confidence = min_tracking_confidence
+        self.smooth_landmarks = smooth_landmarks
+
+    def to_dict(self):
+        """Return configuration as dictionary for MediaPipe Pose initialization."""
+        return {
+            'model_complexity': self.model_complexity,
+            'static_image_mode': self.static_image_mode,
+            'min_detection_confidence': self.min_detection_confidence,
+            'min_tracking_confidence': self.min_tracking_confidence,
+            'smooth_landmarks': self.smooth_landmarks
+        }
+
+    def __repr__(self):
+        return (f"PoseConfig(model_complexity={self.model_complexity}, "
+                f"static_image_mode={self.static_image_mode}, "
+                f"min_detection_confidence={self.min_detection_confidence}, "
+                f"min_tracking_confidence={self.min_tracking_confidence}, "
+                f"smooth_landmarks={self.smooth_landmarks})")
+
+
+# Preset configurations for common use cases
+PRESET_HIGH_QUALITY = PoseConfig(
+    model_complexity=2,
+    min_detection_confidence=0.5,
+    min_tracking_confidence=0.5,
+    smooth_landmarks=True
+)
+
+PRESET_FAST = PoseConfig(
+    model_complexity=0,
+    min_detection_confidence=0.3,
+    min_tracking_confidence=0.3,
+    smooth_landmarks=False
+)
+
+PRESET_DIFFICULT_VIDEO = PoseConfig(
+    model_complexity=2,
+    min_detection_confidence=0.3,
+    min_tracking_confidence=0.3,
+    smooth_landmarks=True
+)
+
+PRESET_SLOW_MOTION = PoseConfig(
+    model_complexity=2,
+    min_detection_confidence=0.5,
+    min_tracking_confidence=0.7,
+    smooth_landmarks=True
+)
+
+
 class VideoProcessor:
-    def __init__(self):
+    def __init__(self, pose_config=None):
+        """
+        Initialize VideoProcessor with optional pose configuration.
+
+        Args:
+            pose_config (PoseConfig, optional): Configuration for MediaPipe Pose.
+                If None, uses default balanced configuration.
+                Can also use preset configs:
+                - PRESET_HIGH_QUALITY: Best quality for good videos
+                - PRESET_FAST: Quick processing for real-time applications
+                - PRESET_DIFFICULT_VIDEO: For low quality/challenging videos
+                - PRESET_SLOW_MOTION: Optimized for slow-motion videos
+        """
         self.mp_pose = mp.solutions.pose
-        self.pose = self.mp_pose.Pose(
-            static_image_mode=False,
-            model_complexity=1,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5
-        )
+
+        # Use default config if none provided
+        if pose_config is None:
+            pose_config = PoseConfig()  # Use default balanced config
+
+        self.pose_config = pose_config
+
+        # Initialize MediaPipe Pose with configuration
+        self.pose = self.mp_pose.Pose(**pose_config.to_dict())
     
     def process_video(self, video_path):
         """
