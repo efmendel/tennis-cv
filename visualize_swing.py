@@ -210,8 +210,8 @@ if __name__ == "__main__":
     # ========================================
 
     # Choose your video and output
-    video_path = "uploads/test_swing.mp4"  # Change to "uploads/novak_swing.mp4"
-    output_path = "results/annotated_swing.mp4"
+    video_path = "uploads/novakswing.mp4"
+    output_path = "results/annotated_novakswing.mp4"
 
     # Toggle detection method:
 
