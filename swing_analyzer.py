@@ -4,6 +4,12 @@ from utils import (
     get_body_center_x,
     is_wrist_behind_body,
 )
+from kinematic_chain_utils import (
+    calculate_hip_rotation,
+    calculate_shoulder_rotation,
+    calculate_knee_bend,
+    calculate_trunk_lean,
+)
 
 
 class SwingAnalyzerConfig:
@@ -20,6 +26,11 @@ class SwingAnalyzerConfig:
         forward_swing_search_window (int): Maximum frames to search for contact point
         min_valid_frames (int): Minimum frames with pose detected required for analysis
         wrist_behind_body_threshold (float): X-position threshold relative to body center
+        kinematic_chain_mode (bool): Enable multi-joint kinematic chain analysis for phase detection
+        contact_detection_method (str): Method for detecting contact point:
+            'velocity_peak' - Traditional method using wrist velocity peak
+            'kinematic_chain' - Biomechanical method using shoulder→elbow→wrist sequencing
+            'hybrid' - Try both methods and use voting/best confidence
     """
 
     def __init__(
@@ -33,6 +44,8 @@ class SwingAnalyzerConfig:
         forward_swing_search_window=40,
         min_valid_frames=10,
         wrist_behind_body_threshold=0.0,
+        kinematic_chain_mode=False,
+        contact_detection_method='velocity_peak',
     ):
         """
         Initialize swing analyzer configuration.
@@ -56,6 +69,13 @@ class SwingAnalyzerConfig:
                 Videos with fewer valid frames will be rejected
             wrist_behind_body_threshold: X-position threshold relative to body center (default: 0.0)
                 Currently unused, reserved for future backswing detection refinements
+            kinematic_chain_mode: Enable multi-joint kinematic chain analysis (default: False)
+                If True, uses hip rotation, shoulder rotation, and proximal-to-distal sequencing
+                If False, uses traditional single-point wrist tracking (backward compatible)
+            contact_detection_method: Method for detecting contact (default: 'velocity_peak')
+                'velocity_peak' - Traditional wrist velocity peak detection
+                'kinematic_chain' - Shoulder→elbow→wrist sequencing detection
+                'hybrid' - Try both and use best confidence
         """
         # Validate parameters
         if velocity_threshold < 0:
@@ -72,6 +92,10 @@ class SwingAnalyzerConfig:
             raise ValueError("forward_swing_search_window must be at least 1")
         if min_valid_frames < 1:
             raise ValueError("min_valid_frames must be at least 1")
+        if not isinstance(kinematic_chain_mode, bool):
+            raise ValueError("kinematic_chain_mode must be a boolean")
+        if contact_detection_method not in ['velocity_peak', 'kinematic_chain', 'hybrid']:
+            raise ValueError("contact_detection_method must be 'velocity_peak', 'kinematic_chain', or 'hybrid'")
 
         self.velocity_threshold = velocity_threshold
         self.contact_angle_min = contact_angle_min
@@ -82,6 +106,8 @@ class SwingAnalyzerConfig:
         self.forward_swing_search_window = forward_swing_search_window
         self.min_valid_frames = min_valid_frames
         self.wrist_behind_body_threshold = wrist_behind_body_threshold
+        self.kinematic_chain_mode = kinematic_chain_mode
+        self.contact_detection_method = contact_detection_method
 
     def __repr__(self):
         return (
@@ -93,7 +119,9 @@ class SwingAnalyzerConfig:
             f"contact_frame_offset={self.contact_frame_offset}, "
             f"follow_through_offset={self.follow_through_offset}, "
             f"forward_swing_search_window={self.forward_swing_search_window}, "
-            f"min_valid_frames={self.min_valid_frames})"
+            f"min_valid_frames={self.min_valid_frames}, "
+            f"kinematic_chain_mode={self.kinematic_chain_mode}, "
+            f"contact_detection_method={self.contact_detection_method})"
         )
 
 
@@ -158,6 +186,8 @@ class SwingAnalyzer:
         self.forward_swing_search_window = config.forward_swing_search_window
         self.min_valid_frames = config.min_valid_frames
         self.wrist_behind_body_threshold = config.wrist_behind_body_threshold
+        self.kinematic_chain_mode = config.kinematic_chain_mode
+        self.contact_detection_method = config.contact_detection_method
 
         # Print configuration
         print("⚙️  Swing Analyzer Config:")
@@ -169,6 +199,8 @@ class SwingAnalyzer:
         print(f"   Contact frame offset: {self.contact_frame_offset}")
         print(f"   Follow-through offset: {self.follow_through_offset}")
         print(f"   Search window: {self.forward_swing_search_window} frames")
+        print(f"   Kinematic chain mode: {self.kinematic_chain_mode}")
+        print(f"   Contact detection method: {self.contact_detection_method}")
 
     def analyze_swing(self, video_data):
         """
@@ -205,7 +237,7 @@ class SwingAnalyzer:
             )
 
         # Detect swing phases
-        phases = self._detect_phases(frame_metrics, valid_frames, velocity_threshold)
+        phases = self._detect_phases(frame_metrics, valid_frames, velocity_threshold, self.kinematic_chain_mode)
 
         return phases
 
@@ -243,23 +275,152 @@ class SwingAnalyzer:
                 landmarks["left_shoulder"], landmarks["right_shoulder"]
             )
 
+            # ===== KINEMATIC CHAIN METRICS =====
+            # Calculate kinematic chain angles
+            hip_rotation = calculate_hip_rotation(landmarks)
+            shoulder_rotation = calculate_shoulder_rotation(landmarks)
+            knee_bend = calculate_knee_bend(landmarks, side='right')
+            trunk_lean = calculate_trunk_lean(landmarks)
+
+            # Calculate velocities for kinematic chain (if not first frame)
+            hip_velocity = 0
+            shoulder_velocity = 0
+            elbow_velocity = 0
+            if i > 0:
+                prev_landmarks = frames[i - 1]["landmarks"]
+                prev_hip_rotation = calculate_hip_rotation(prev_landmarks)
+                prev_shoulder_rotation = calculate_shoulder_rotation(prev_landmarks)
+                prev_elbow = prev_landmarks["right_elbow"]
+                curr_elbow = landmarks["right_elbow"]
+
+                time_delta = 1 / fps
+                # Angular velocity = change in angle / time
+                hip_velocity = abs(hip_rotation - prev_hip_rotation) / time_delta
+                shoulder_velocity = abs(shoulder_rotation - prev_shoulder_rotation) / time_delta
+                # Linear velocity for elbow (similar to wrist)
+                elbow_velocity = calculate_velocity(curr_elbow, prev_elbow, time_delta)
+
             metrics.append(
                 {
                     "frame_number": frame["frame_number"],
                     "timestamp": frame["timestamp"],
+                    # Existing fields
                     "elbow_angle": elbow_angle,
                     "wrist_velocity": wrist_velocity,
                     "wrist_x": landmarks["right_wrist"]["x"],
                     "wrist_behind_body": wrist_behind,
                     "body_center_x": body_center,
+                    # Kinematic chain fields
+                    "hip_rotation": hip_rotation,
+                    "shoulder_rotation": shoulder_rotation,
+                    "knee_bend": knee_bend,
+                    "trunk_lean": trunk_lean,
+                    "hip_velocity": hip_velocity,
+                    "shoulder_velocity": shoulder_velocity,
+                    "elbow_velocity": elbow_velocity,
                 }
             )
 
         return metrics
 
-    def _detect_phases(self, metrics, frames, velocity_threshold):
+    def _detect_contact_kinematic_chain(self, metrics, forward_idx, velocity_threshold):
+        """
+        Detect contact using kinematic chain sequencing (shoulder→elbow→wrist).
+
+        This method looks for the biomechanical signature of efficient contact:
+        - Shoulder decelerating (proximal segment slowing)
+        - Elbow at or near peak velocity (middle segment)
+        - Wrist at peak velocity (distal segment - fastest)
+        - Proper velocity sequencing: shoulder < elbow < wrist
+
+        Args:
+            metrics: List of frame metrics
+            forward_idx: Index of forward swing start
+            velocity_threshold: Velocity threshold for detection
+
+        Returns:
+            tuple: (contact_metric_dict or None, confidence_score)
+        """
+        search_window_end = min(forward_idx + self.forward_swing_search_window, len(metrics))
+        contact_candidates = []
+
+        for i in range(forward_idx + 1, search_window_end):
+            m = metrics[i]
+
+            # Check elbow at high velocity (middle of kinematic chain)
+            elbow_high_velocity = m["elbow_velocity"] > velocity_threshold * 0.6  # Lowered from 0.8
+
+            # Check wrist at peak velocity (distal end - fastest)
+            wrist_peak_velocity = m["wrist_velocity"] > velocity_threshold
+
+            # Check velocity sequencing: wrist should be fastest (most important)
+            # This is the key kinematic chain principle: distal segment (wrist) moves faster than proximal (elbow)
+            wrist_fastest = m["wrist_velocity"] > m["elbow_velocity"]
+
+            # Arm should be extended at contact
+            arm_extended = m["elbow_angle"] > self.contact_angle_min
+
+            # Wrist should be in front of body
+            wrist_in_front = not m["wrist_behind_body"]
+
+            if elbow_high_velocity and wrist_peak_velocity and wrist_fastest and arm_extended and wrist_in_front:
+                # Calculate sequencing quality score based on velocity gradient
+                # Higher gradient (wrist much faster than elbow) = better kinematic chain
+                velocity_gradient = m["wrist_velocity"] - m["elbow_velocity"]
+                sequencing_quality = min(1.0, velocity_gradient / 0.5)  # Full score at 0.5 difference
+
+                # Velocity ratios (how well does it follow shoulder < elbow < wrist)
+                elbow_wrist_ratio = m["elbow_velocity"] / m["wrist_velocity"] if m["wrist_velocity"] > 0 else 0
+                shoulder_elbow_ratio = m["shoulder_velocity"] / m["elbow_velocity"] if m["elbow_velocity"] > 0 else 0
+
+                # Ideal ratios: shoulder ~ 0.5-0.7 * elbow, elbow ~ 0.6-0.8 * wrist
+                ratio_score = (
+                    (1.0 - abs(shoulder_elbow_ratio - 0.6)) +  # Penalize deviation from 0.6
+                    (1.0 - abs(elbow_wrist_ratio - 0.7))      # Penalize deviation from 0.7
+                ) / 2.0
+                ratio_score = max(0.0, min(1.0, ratio_score))
+
+                # Velocity score
+                velocity_score = min(1.0, m["wrist_velocity"] / (velocity_threshold * 2))
+
+                # Arm extension score
+                angle_score = min(1.0, (m["elbow_angle"] - self.contact_angle_min) / 30.0)
+
+                # Store scores in metric for evaluation
+                m["sequencing_quality"] = sequencing_quality
+                m["ratio_score"] = ratio_score
+                m["velocity_score"] = velocity_score
+                m["angle_score"] = angle_score
+                m["shoulder_velocity_at_contact"] = m["shoulder_velocity"]
+                m["elbow_velocity_at_contact"] = m["elbow_velocity"]
+
+                contact_candidates.append(m)
+
+        if not contact_candidates:
+            return None, 0.0
+
+        # Choose best candidate based on wrist velocity (contact occurs at peak)
+        best_contact = max(contact_candidates, key=lambda x: x["wrist_velocity"])
+
+        # Calculate overall confidence
+        confidence = (
+            best_contact["sequencing_quality"] +
+            best_contact["ratio_score"] +
+            best_contact["velocity_score"] +
+            best_contact["angle_score"]
+        ) / 4.0
+
+        return best_contact, confidence
+
+    def _detect_phases(self, metrics, frames, velocity_threshold, kinematic_chain_mode=False):
         """
         Detect the swing phases based on calculated metrics.
+
+        Args:
+            metrics: List of frame metrics with angles and velocities
+            frames: List of valid frames with pose data
+            velocity_threshold: Threshold for velocity-based detection
+            kinematic_chain_mode: If True, use multi-joint kinematic chain criteria
 
         Returns detailed status for each phase including:
         - detected: bool indicating if phase was found
@@ -297,27 +458,61 @@ class SwingAnalyzer:
             },
         }
 
-        # Find backswing start (wrist goes behind body)
+        # Find backswing start
         backswing_found = False
-        for i, m in enumerate(metrics):
-            if m["wrist_behind_body"]:
-                # Calculate confidence based on how far behind body
-                wrist_offset = m["body_center_x"] - m["wrist_x"]
-                confidence = min(1.0, wrist_offset / 0.1)  # Full confidence at 0.1 offset
 
-                phases["backswing_start"] = {
-                    "detected": True,
-                    "confidence": confidence,
-                    "reason": "Successfully detected",
-                    "frame": m["frame_number"],
-                    "timestamp": m["timestamp"],
-                    "wrist_offset": wrist_offset
-                }
-                backswing_found = True
-                break
+        if kinematic_chain_mode:
+            # Kinematic chain mode: Look for hip and shoulder rotation indicating backswing
+            for i, m in enumerate(metrics):
+                # Check for combined rotation (both hips and shoulders rotating back)
+                # Positive rotation indicates right side moving back (for right-handed player)
+                hip_rotating = abs(m["hip_rotation"]) > 10  # At least 10 degrees rotation
+                shoulder_rotating = abs(m["shoulder_rotation"]) > 15  # At least 15 degrees rotation
 
-        if not backswing_found:
-            phases["backswing_start"]["reason"] = "wrist_never_behind_body"
+                if hip_rotating and shoulder_rotating and m["wrist_behind_body"]:
+                    # Calculate confidence based on rotation magnitude and wrist position
+                    wrist_offset = m["body_center_x"] - m["wrist_x"]
+                    rotation_score = min(1.0, (abs(m["hip_rotation"]) + abs(m["shoulder_rotation"])) / 50)
+                    wrist_score = min(1.0, wrist_offset / 0.1)
+                    confidence = (rotation_score + wrist_score) / 2.0
+
+                    phases["backswing_start"] = {
+                        "detected": True,
+                        "confidence": confidence,
+                        "reason": "Successfully detected (kinematic chain)",
+                        "frame": m["frame_number"],
+                        "timestamp": m["timestamp"],
+                        "wrist_offset": wrist_offset,
+                        "hip_rotation": m["hip_rotation"],
+                        "shoulder_rotation": m["shoulder_rotation"],
+                        "rotation_score": rotation_score
+                    }
+                    backswing_found = True
+                    break
+
+            if not backswing_found:
+                phases["backswing_start"]["reason"] = "insufficient_body_rotation"
+        else:
+            # Traditional mode: wrist goes behind body
+            for i, m in enumerate(metrics):
+                if m["wrist_behind_body"]:
+                    # Calculate confidence based on how far behind body
+                    wrist_offset = m["body_center_x"] - m["wrist_x"]
+                    confidence = min(1.0, wrist_offset / 0.1)  # Full confidence at 0.1 offset
+
+                    phases["backswing_start"] = {
+                        "detected": True,
+                        "confidence": confidence,
+                        "reason": "Successfully detected",
+                        "frame": m["frame_number"],
+                        "timestamp": m["timestamp"],
+                        "wrist_offset": wrist_offset
+                    }
+                    backswing_found = True
+                    break
+
+            if not backswing_found:
+                phases["backswing_start"]["reason"] = "wrist_never_behind_body"
 
         # Find max backswing (furthest back wrist position)
         if phases["backswing_start"]["detected"]:
@@ -343,7 +538,7 @@ class SwingAnalyzer:
         else:
             phases["max_backswing"]["reason"] = "backswing_start_not_detected"
 
-        # Find forward swing start (velocity increases after max backswing)
+        # Find forward swing start
         if phases["max_backswing"]["detected"]:
             max_back_idx = next(
                 i
@@ -352,30 +547,61 @@ class SwingAnalyzer:
             )
 
             forward_found = False
-            for i in range(max_back_idx, len(metrics)):
-                if metrics[i]["wrist_velocity"] > velocity_threshold:
-                    # Calculate confidence based on velocity relative to threshold
-                    velocity_ratio = metrics[i]["wrist_velocity"] / velocity_threshold
-                    confidence = min(1.0, (velocity_ratio - 1.0) / 2.0 + 0.5)  # 0.5-1.0 range
 
-                    phases["forward_swing_start"] = {
-                        "detected": True,
-                        "confidence": confidence,
-                        "reason": "Successfully detected",
-                        "frame": metrics[i]["frame_number"],
-                        "timestamp": metrics[i]["timestamp"],
-                        "velocity": metrics[i]["wrist_velocity"],
-                        "velocity_ratio": velocity_ratio
-                    }
-                    forward_found = True
-                    break
+            if kinematic_chain_mode:
+                # Kinematic chain mode: Look for hip velocity reversal (proximal initiation)
+                # The forward swing should start with hips accelerating forward
+                for i in range(max_back_idx, len(metrics)):
+                    m = metrics[i]
+                    # Hip velocity reversal indicates forward swing initiation
+                    if m["hip_velocity"] > 30 and m["wrist_velocity"] > velocity_threshold * 0.5:
+                        # Calculate confidence based on hip velocity and wrist velocity
+                        hip_vel_score = min(1.0, m["hip_velocity"] / 60)
+                        wrist_vel_score = min(1.0, m["wrist_velocity"] / velocity_threshold)
+                        confidence = (hip_vel_score + wrist_vel_score) / 2.0
 
-            if not forward_found:
-                phases["forward_swing_start"]["reason"] = "insufficient_velocity"
+                        phases["forward_swing_start"] = {
+                            "detected": True,
+                            "confidence": confidence,
+                            "reason": "Successfully detected (kinematic chain)",
+                            "frame": m["frame_number"],
+                            "timestamp": m["timestamp"],
+                            "velocity": m["wrist_velocity"],
+                            "hip_velocity": m["hip_velocity"],
+                            "shoulder_velocity": m["shoulder_velocity"],
+                            "hip_vel_score": hip_vel_score
+                        }
+                        forward_found = True
+                        break
+
+                if not forward_found:
+                    phases["forward_swing_start"]["reason"] = "no_hip_velocity_reversal"
+            else:
+                # Traditional mode: velocity increases after max backswing
+                for i in range(max_back_idx, len(metrics)):
+                    if metrics[i]["wrist_velocity"] > velocity_threshold:
+                        # Calculate confidence based on velocity relative to threshold
+                        velocity_ratio = metrics[i]["wrist_velocity"] / velocity_threshold
+                        confidence = min(1.0, (velocity_ratio - 1.0) / 2.0 + 0.5)  # 0.5-1.0 range
+
+                        phases["forward_swing_start"] = {
+                            "detected": True,
+                            "confidence": confidence,
+                            "reason": "Successfully detected",
+                            "frame": metrics[i]["frame_number"],
+                            "timestamp": metrics[i]["timestamp"],
+                            "velocity": metrics[i]["wrist_velocity"],
+                            "velocity_ratio": velocity_ratio
+                        }
+                        forward_found = True
+                        break
+
+                if not forward_found:
+                    phases["forward_swing_start"]["reason"] = "insufficient_velocity"
         else:
             phases["forward_swing_start"]["reason"] = "max_backswing_not_detected"
 
-        # Find contact point (occurs at PEAK velocity with extended arm)
+        # Find contact point
         if phases["forward_swing_start"]["detected"]:
             forward_idx = next(
                 i
@@ -383,74 +609,208 @@ class SwingAnalyzer:
                 if m["frame_number"] == phases["forward_swing_start"]["frame"]
             )
 
-            # Look ahead from forward swing start with configurable search window
-            search_window_end = min(
-                forward_idx + self.forward_swing_search_window, len(metrics)
-            )
+            # Determine which contact detection method to use
+            detection_method = self.contact_detection_method
 
-            # Find frames with good arm extension that are moving fast
-            contact_candidates = []
-            for i in range(forward_idx, search_window_end):
-                m = metrics[i]
-                if (
-                    m["elbow_angle"] > self.contact_angle_min
-                    and m["wrist_velocity"] > velocity_threshold
-                    and not m["wrist_behind_body"]
-                ):
-                    contact_candidates.append(m)
-
-            if contact_candidates:
-                # Contact is at MAXIMUM velocity (peak of swing)
-                contact = max(contact_candidates, key=lambda x: x["wrist_velocity"])
-
-                # Adjust forward by configured offset (contact happens slightly after peak velocity)
-                contact_idx = next(
-                    i
-                    for i, m in enumerate(metrics)
-                    if m["frame_number"] == contact["frame_number"]
-                )
-                adjusted_idx = min(
-                    len(metrics) - 1, contact_idx + self.contact_frame_offset
-                )
-                adjusted_contact = metrics[adjusted_idx]
-
-                # Calculate confidence based on velocity and arm extension
-                velocity_score = min(1.0, adjusted_contact["wrist_velocity"] / (velocity_threshold * 2))
-                angle_score = min(1.0, (adjusted_contact["elbow_angle"] - self.contact_angle_min) / 30.0)
-                confidence = (velocity_score + angle_score) / 2.0
-
-                phases["contact"] = {
-                    "detected": True,
-                    "confidence": confidence,
-                    "reason": "Successfully detected",
-                    "frame": adjusted_contact["frame_number"],
-                    "timestamp": adjusted_contact["timestamp"],
-                    "velocity": adjusted_contact["wrist_velocity"],
-                    "elbow_angle": adjusted_contact["elbow_angle"],
-                    "velocity_score": velocity_score,
-                    "angle_score": angle_score
-                }
-            else:
-                # Determine specific failure reason
-                no_velocity = all(
-                    m["wrist_velocity"] <= velocity_threshold
-                    for m in metrics[forward_idx:search_window_end]
-                )
-                no_extension = all(
-                    m["elbow_angle"] <= self.contact_angle_min
-                    for m in metrics[forward_idx:search_window_end]
+            # Use contact detection method
+            if detection_method == 'kinematic_chain':
+                # Use new kinematic chain method (shoulder→elbow→wrist sequencing)
+                contact_result, confidence = self._detect_contact_kinematic_chain(
+                    metrics, forward_idx, velocity_threshold
                 )
 
-                if no_velocity and no_extension:
-                    phases["contact"]["reason"] = "insufficient_velocity_and_arm_not_extended"
-                elif no_velocity:
-                    phases["contact"]["reason"] = "insufficient_velocity"
-                elif no_extension:
-                    phases["contact"]["reason"] = "arm_not_extended"
+                if contact_result:
+                    # Adjust forward by configured offset
+                    contact_idx = next(
+                        i
+                        for i, m in enumerate(metrics)
+                        if m["frame_number"] == contact_result["frame_number"]
+                    )
+                    adjusted_idx = min(
+                        len(metrics) - 1, contact_idx + self.contact_frame_offset
+                    )
+                    adjusted_contact = metrics[adjusted_idx]
+
+                    phases["contact"] = {
+                        "detected": True,
+                        "confidence": confidence,
+                        "reason": "Successfully detected",
+                        "method": "kinematic_chain",
+                        "frame": adjusted_contact["frame_number"],
+                        "timestamp": adjusted_contact["timestamp"],
+                        "velocity": adjusted_contact["wrist_velocity"],
+                        "elbow_angle": adjusted_contact["elbow_angle"],
+                        "shoulder_velocity": contact_result.get("shoulder_velocity_at_contact", 0),
+                        "elbow_velocity": contact_result.get("elbow_velocity_at_contact", 0),
+                        "sequencing_quality": contact_result.get("sequencing_quality", 0),
+                        "ratio_score": contact_result.get("ratio_score", 0),
+                        "velocity_score": contact_result.get("velocity_score", 0),
+                        "angle_score": contact_result.get("angle_score", 0)
+                    }
                 else:
-                    phases["contact"]["reason"] = "wrist_position_unclear"
+                    phases["contact"]["reason"] = "no_kinematic_chain_signature_found"
+                    phases["contact"]["method"] = "kinematic_chain"
+
+            elif detection_method == 'hybrid':
+                # Try both methods and use best confidence
+                kc_result, kc_confidence = self._detect_contact_kinematic_chain(
+                    metrics, forward_idx, velocity_threshold
+                )
+
+                # Also try velocity peak method
+                search_window_end = min(
+                    forward_idx + self.forward_swing_search_window, len(metrics)
+                )
+                vp_candidates = []
+                for i in range(forward_idx, search_window_end):
+                    m = metrics[i]
+                    if (
+                        m["elbow_angle"] > self.contact_angle_min
+                        and m["wrist_velocity"] > velocity_threshold
+                        and not m["wrist_behind_body"]
+                    ):
+                        vp_candidates.append(m)
+
+                vp_result = None
+                vp_confidence = 0.0
+                if vp_candidates:
+                    vp_contact = max(vp_candidates, key=lambda x: x["wrist_velocity"])
+                    velocity_score = min(1.0, vp_contact["wrist_velocity"] / (velocity_threshold * 2))
+                    angle_score = min(1.0, (vp_contact["elbow_angle"] - self.contact_angle_min) / 30.0)
+                    vp_confidence = (velocity_score + angle_score) / 2.0
+                    vp_result = vp_contact
+
+                # Choose method with higher confidence
+                if kc_confidence >= vp_confidence and kc_result:
+                    # Use kinematic chain result
+                    contact_idx = next(
+                        i
+                        for i, m in enumerate(metrics)
+                        if m["frame_number"] == kc_result["frame_number"]
+                    )
+                    adjusted_idx = min(
+                        len(metrics) - 1, contact_idx + self.contact_frame_offset
+                    )
+                    adjusted_contact = metrics[adjusted_idx]
+
+                    phases["contact"] = {
+                        "detected": True,
+                        "confidence": kc_confidence,
+                        "reason": "Successfully detected",
+                        "method": "hybrid (used kinematic_chain)",
+                        "frame": adjusted_contact["frame_number"],
+                        "timestamp": adjusted_contact["timestamp"],
+                        "velocity": adjusted_contact["wrist_velocity"],
+                        "elbow_angle": adjusted_contact["elbow_angle"],
+                        "shoulder_velocity": kc_result.get("shoulder_velocity_at_contact", 0),
+                        "elbow_velocity": kc_result.get("elbow_velocity_at_contact", 0),
+                        "sequencing_quality": kc_result.get("sequencing_quality", 0)
+                    }
+                elif vp_result:
+                    # Use velocity peak result
+                    contact_idx = next(
+                        i
+                        for i, m in enumerate(metrics)
+                        if m["frame_number"] == vp_result["frame_number"]
+                    )
+                    adjusted_idx = min(
+                        len(metrics) - 1, contact_idx + self.contact_frame_offset
+                    )
+                    adjusted_contact = metrics[adjusted_idx]
+
+                    velocity_score = min(1.0, adjusted_contact["wrist_velocity"] / (velocity_threshold * 2))
+                    angle_score = min(1.0, (adjusted_contact["elbow_angle"] - self.contact_angle_min) / 30.0)
+
+                    phases["contact"] = {
+                        "detected": True,
+                        "confidence": (velocity_score + angle_score) / 2.0,
+                        "reason": "Successfully detected",
+                        "method": "hybrid (used velocity_peak)",
+                        "frame": adjusted_contact["frame_number"],
+                        "timestamp": adjusted_contact["timestamp"],
+                        "velocity": adjusted_contact["wrist_velocity"],
+                        "elbow_angle": adjusted_contact["elbow_angle"],
+                        "velocity_score": velocity_score,
+                        "angle_score": angle_score
+                    }
+                else:
+                    phases["contact"]["reason"] = "no_contact_detected_by_any_method"
+                    phases["contact"]["method"] = "hybrid"
+
+            else:  # velocity_peak (default)
+                # Look ahead from forward swing start with configurable search window
+                search_window_end = min(
+                    forward_idx + self.forward_swing_search_window, len(metrics)
+                )
+
+                contact_candidates = []
+
+                # Traditional mode: Find frames with good arm extension that are moving fast
+                for i in range(forward_idx, search_window_end):
+                    m = metrics[i]
+                    if (
+                        m["elbow_angle"] > self.contact_angle_min
+                        and m["wrist_velocity"] > velocity_threshold
+                        and not m["wrist_behind_body"]
+                    ):
+                        contact_candidates.append(m)
+
+                if contact_candidates:
+                    # Contact is at MAXIMUM velocity (peak of swing)
+                    contact = max(contact_candidates, key=lambda x: x["wrist_velocity"])
+
+                    # Adjust forward by configured offset (contact happens slightly after peak velocity)
+                    contact_idx = next(
+                        i
+                        for i, m in enumerate(metrics)
+                        if m["frame_number"] == contact["frame_number"]
+                    )
+                    adjusted_idx = min(
+                        len(metrics) - 1, contact_idx + self.contact_frame_offset
+                    )
+                    adjusted_contact = metrics[adjusted_idx]
+
+                    # Calculate confidence based on velocity and arm extension
+                    velocity_score = min(1.0, adjusted_contact["wrist_velocity"] / (velocity_threshold * 2))
+                    angle_score = min(1.0, (adjusted_contact["elbow_angle"] - self.contact_angle_min) / 30.0)
+                    confidence = (velocity_score + angle_score) / 2.0
+
+                    phases["contact"] = {
+                        "detected": True,
+                        "confidence": confidence,
+                        "reason": "Successfully detected",
+                        "method": "velocity_peak",
+                        "frame": adjusted_contact["frame_number"],
+                        "timestamp": adjusted_contact["timestamp"],
+                        "velocity": adjusted_contact["wrist_velocity"],
+                        "elbow_angle": adjusted_contact["elbow_angle"],
+                        "velocity_score": velocity_score,
+                        "angle_score": angle_score
+                    }
+                else:
+                    # Determine specific failure reason
+                    no_velocity = all(
+                        m["wrist_velocity"] <= velocity_threshold
+                        for m in metrics[forward_idx:search_window_end]
+                    )
+                    no_extension = all(
+                        m["elbow_angle"] <= self.contact_angle_min
+                        for m in metrics[forward_idx:search_window_end]
+                    )
+
+                    if no_velocity and no_extension:
+                        phases["contact"]["reason"] = "insufficient_velocity_and_arm_not_extended"
+                    elif no_velocity:
+                        phases["contact"]["reason"] = "insufficient_velocity"
+                    elif no_extension:
+                        phases["contact"]["reason"] = "arm_not_extended"
+                    else:
+                        phases["contact"]["reason"] = "wrist_position_unclear"
+                    phases["contact"]["method"] = "velocity_peak"
+
         else:
             phases["contact"]["reason"] = "forward_swing_start_not_detected"
+            phases["contact"]["method"] = self.contact_detection_method
 
         # Find follow through (wrist crosses far past body center)
         if phases["contact"]["detected"]:
@@ -516,10 +876,18 @@ if __name__ == "__main__":
     # analyzer = SwingAnalyzer(velocity_threshold=0.5, contact_angle_min=150)
 
     # Method 2: Use adaptive threshold (recommended for different videos)
+    # analyzer = SwingAnalyzer(
+    #     use_adaptive_velocity=True,
+    #     adaptive_velocity_percent=0.15,  # 15% of max velocity
+    #     contact_angle_min=120,  # Lowered from 150 for more relaxed detection
+    # )
+
+    # Method 3: KINEMATIC CHAIN MODE (multi-joint biomechanical analysis)
     analyzer = SwingAnalyzer(
+        kinematic_chain_mode=True,  # 🔥 ENABLED FOR TESTING
         use_adaptive_velocity=True,
-        adaptive_velocity_percent=0.15,  # 15% of max velocity
-        contact_angle_min=120,  # Lowered from 150 for more relaxed detection
+        adaptive_velocity_percent=0.15,
+        contact_angle_min=120,
     )
 
     # ========================================

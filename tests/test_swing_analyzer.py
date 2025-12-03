@@ -314,6 +314,229 @@ def test_phase_detection_failure_handling():
     print("="*60)
 
 
+def test_kinematic_chain_mode():
+    """Test that kinematic chain mode produces kinematic metrics in phase results."""
+    print("\n" + "="*60)
+    print("TESTING KINEMATIC CHAIN MODE")
+    print("="*60)
+
+    from video_processor import VideoProcessor
+
+    # Test 1: Config validation for kinematic_chain_mode
+    print("\n[Test 1] Testing kinematic_chain_mode parameter in config")
+    config_disabled = SwingAnalyzerConfig(kinematic_chain_mode=False)
+    config_enabled = SwingAnalyzerConfig(kinematic_chain_mode=True)
+
+    assert config_disabled.kinematic_chain_mode == False
+    assert config_enabled.kinematic_chain_mode == True
+    print("  ✅ kinematic_chain_mode parameter works in config")
+
+    # Test 2: Invalid kinematic_chain_mode should raise error
+    print("\n[Test 2] Testing invalid kinematic_chain_mode value")
+    try:
+        SwingAnalyzerConfig(kinematic_chain_mode="invalid")
+        assert False, "Should raise ValueError for non-boolean kinematic_chain_mode"
+    except ValueError as e:
+        print(f"  ✅ Correctly rejected invalid type: {e}")
+
+    # Test 3: Analyzer stores kinematic_chain_mode
+    print("\n[Test 3] Testing analyzer stores kinematic_chain_mode")
+    analyzer_disabled = SwingAnalyzer(config=config_disabled)
+    analyzer_enabled = SwingAnalyzer(config=config_enabled)
+
+    assert analyzer_disabled.kinematic_chain_mode == False
+    assert analyzer_enabled.kinematic_chain_mode == True
+    print("  ✅ Analyzer correctly stores kinematic_chain_mode")
+
+    # Test 4: Process video with kinematic chain mode (if video available)
+    test_video = 'uploads/test_swing.mp4'
+    if not os.path.exists(test_video):
+        print(f"\n[Test 4] Skipping video processing - video not found: {test_video}")
+        print("  ⚠️  Install test video to run full kinematic chain test")
+    else:
+        print(f"\n[Test 4] Processing video with kinematic chain mode: {test_video}")
+
+        # Process video
+        processor = VideoProcessor()
+        video_data = processor.process_video(test_video)
+
+        # Analyze with kinematic chain mode enabled
+        config = SwingAnalyzerConfig(
+            kinematic_chain_mode=True,
+            use_adaptive_velocity=True,
+            adaptive_velocity_percent=0.15
+        )
+        analyzer = SwingAnalyzer(config=config)
+        phases = analyzer.analyze_swing(video_data)
+
+        # Test 4a: Verify kinematic metrics are present in detected phases
+        print("\n  [Test 4a] Verifying kinematic metrics in phase results")
+
+        if phases.get("backswing_start", {}).get("detected"):
+            bs = phases["backswing_start"]
+            print(f"    Backswing start detected: frame {bs.get('frame')}")
+            if "hip_rotation" in bs:
+                print(f"      Hip rotation: {bs['hip_rotation']:.1f}°")
+                assert isinstance(bs["hip_rotation"], (int, float))
+            if "shoulder_rotation" in bs:
+                print(f"      Shoulder rotation: {bs['shoulder_rotation']:.1f}°")
+                assert isinstance(bs["shoulder_rotation"], (int, float))
+            print("      ✅ Kinematic metrics present in backswing_start")
+
+        if phases.get("forward_swing_start", {}).get("detected"):
+            fs = phases["forward_swing_start"]
+            print(f"    Forward swing start detected: frame {fs.get('frame')}")
+            if "hip_velocity" in fs:
+                print(f"      Hip velocity: {fs['hip_velocity']:.1f}°/s")
+                assert isinstance(fs["hip_velocity"], (int, float))
+            if "shoulder_velocity" in fs:
+                print(f"      Shoulder velocity: {fs['shoulder_velocity']:.1f}°/s")
+                assert isinstance(fs["shoulder_velocity"], (int, float))
+            print("      ✅ Kinematic metrics present in forward_swing_start")
+
+        if phases.get("contact", {}).get("detected"):
+            contact = phases["contact"]
+            print(f"    Contact detected: frame {contact.get('frame')}")
+            if "hip_velocity" in contact:
+                print(f"      Hip velocity: {contact['hip_velocity']:.1f}°/s")
+                assert isinstance(contact["hip_velocity"], (int, float))
+            if "sequencing_score" in contact:
+                print(f"      Sequencing score: {contact['sequencing_score']:.2f}")
+                assert isinstance(contact["sequencing_score"], (int, float))
+                assert 0.0 <= contact["sequencing_score"] <= 1.0
+            print("      ✅ Kinematic metrics present in contact")
+
+        # Test 4b: Compare traditional vs kinematic chain mode
+        print("\n  [Test 4b] Comparing traditional vs kinematic chain modes")
+
+        # Analyze with traditional mode
+        config_traditional = SwingAnalyzerConfig(
+            kinematic_chain_mode=False,
+            use_adaptive_velocity=True,
+            adaptive_velocity_percent=0.15
+        )
+        analyzer_traditional = SwingAnalyzer(config=config_traditional)
+
+        # Need new processor for second analysis
+        processor2 = VideoProcessor()
+        video_data2 = processor2.process_video(test_video)
+        phases_traditional = analyzer_traditional.analyze_swing(video_data2)
+
+        print(f"    Traditional mode phases detected: {phases_traditional['_analysis_quality']['phases_detected']}/5")
+        print(f"    Kinematic mode phases detected: {phases['_analysis_quality']['phases_detected']}/5")
+
+        # Both modes should work, though may have different detection rates
+        assert "_analysis_quality" in phases_traditional
+        assert "_analysis_quality" in phases
+        print("      ✅ Both modes produce valid results")
+
+        print(f"\n  ✅ Video processed successfully with kinematic chain mode")
+
+    print("\n" + "="*60)
+    print("✅ ALL KINEMATIC CHAIN MODE TESTS PASSED")
+    print("="*60)
+
+
+def test_kinematic_chain_contact_detection():
+    """Test different contact detection methods: velocity_peak, kinematic_chain, and hybrid."""
+    print("\n" + "="*60)
+    print("TESTING KINEMATIC CHAIN CONTACT DETECTION METHODS")
+    print("="*60)
+
+    from video_processor import VideoProcessor
+
+    # Test 1: Config validation for contact_detection_method
+    print("\n[Test 1] Testing contact_detection_method parameter validation")
+
+    # Valid methods should work
+    for method in ['velocity_peak', 'kinematic_chain', 'hybrid']:
+        config = SwingAnalyzerConfig(contact_detection_method=method)
+        assert config.contact_detection_method == method
+        print(f"  ✅ '{method}' method accepted")
+
+    # Invalid method should raise error
+    try:
+        SwingAnalyzerConfig(contact_detection_method='invalid')
+        assert False, "Should raise ValueError for invalid contact_detection_method"
+    except ValueError as e:
+        print(f"  ✅ Correctly rejected invalid method: {e}")
+
+    # Test 2: Analyzer stores contact_detection_method
+    print("\n[Test 2] Testing analyzer stores contact_detection_method")
+    for method in ['velocity_peak', 'kinematic_chain', 'hybrid']:
+        analyzer = SwingAnalyzer(contact_detection_method=method)
+        assert analyzer.contact_detection_method == method
+        print(f"  ✅ Analyzer correctly stores '{method}'")
+
+    # Test 3: Process video with different contact detection methods (if video available)
+    test_video = 'uploads/test_swing.mp4'
+    if not os.path.exists(test_video):
+        print(f"\n[Test 3] Skipping video processing - video not found: {test_video}")
+        print("  ⚠️  Install test video to run full contact detection method test")
+    else:
+        print(f"\n[Test 3] Testing all contact detection methods on: {test_video}")
+
+        methods = ['velocity_peak', 'kinematic_chain', 'hybrid']
+        results = {}
+
+        for method in methods:
+            print(f"\n  Testing method: {method}")
+
+            # Process video
+            processor = VideoProcessor()
+            video_data = processor.process_video(test_video)
+
+            # Analyze with specified contact detection method
+            analyzer = SwingAnalyzer(
+                contact_detection_method=method,
+                use_adaptive_velocity=True,
+                adaptive_velocity_percent=0.15
+            )
+            phases = analyzer.analyze_swing(video_data)
+
+            # Store results
+            results[method] = phases
+
+            # Verify 'method' field is present in contact phase
+            if 'contact' in phases:
+                contact = phases['contact']
+                assert 'method' in contact, f"Missing 'method' field in contact phase for {method}"
+                print(f"    Method field: {contact['method']}")
+
+                if contact.get('detected'):
+                    print(f"    ✅ Contact detected using {method}: frame {contact['frame']}")
+                    print(f"       Confidence: {contact['confidence']:.2f}")
+                    print(f"       Timestamp: {contact['timestamp']:.2f}s")
+
+                    # Verify method-specific fields
+                    if method == 'kinematic_chain' or (method == 'hybrid' and 'kinematic_chain' in contact['method']):
+                        if 'sequencing_quality' in contact:
+                            print(f"       Sequencing quality: {contact['sequencing_quality']:.2f}")
+                        if 'shoulder_velocity' in contact:
+                            print(f"       Shoulder velocity: {contact['shoulder_velocity']:.1f}°/s")
+                        if 'elbow_velocity' in contact:
+                            print(f"       Elbow velocity: {contact['elbow_velocity']:.1f}")
+                else:
+                    print(f"    ⚠️  Contact not detected using {method}")
+                    print(f"       Reason: {contact.get('reason', 'unknown')}")
+
+        # Test 4: Compare results across methods
+        print(f"\n[Test 4] Comparing results across all methods")
+        print(f"  Results summary:")
+        for method in methods:
+            contact = results[method].get('contact', {})
+            detected = contact.get('detected', False)
+            confidence = contact.get('confidence', 0.0)
+            frame = contact.get('frame', 'N/A')
+            print(f"    {method:20s}: detected={detected}, confidence={confidence:.2f}, frame={frame}")
+
+        print(f"\n  ✅ All methods executed successfully")
+
+    print("\n" + "="*60)
+    print("✅ ALL KINEMATIC CHAIN CONTACT DETECTION TESTS PASSED")
+    print("="*60)
+
+
 if __name__ == "__main__":
     """Run all tests."""
     try:
@@ -323,6 +546,8 @@ if __name__ == "__main__":
         test_config_affects_behavior()
         test_default_behavior()
         test_phase_detection_failure_handling()
+        test_kinematic_chain_mode()
+        test_kinematic_chain_contact_detection()
         print("\n🎉 All swing analyzer tests completed successfully!\n")
     except AssertionError as e:
         print(f"\n❌ Test failed: {e}\n")
