@@ -251,6 +251,69 @@ def test_default_behavior():
     print("="*60)
 
 
+def test_phase_detection_failure_handling():
+    """Test that phase detection provides detailed status and failure reasons."""
+    print("\n" + "="*60)
+    print("TESTING PHASE DETECTION FAILURE HANDLING")
+    print("="*60)
+
+    from video_processor import VideoProcessor
+
+    # Test 1: Check structure of phase detection results
+    print("\n[Test 1] Testing phase detection result structure")
+
+    # Check if test video exists
+    test_video = 'uploads/test_swing.mp4'
+    if not os.path.exists(test_video):
+        print(f"  ⚠️  Skipping - video not found: {test_video}")
+        return
+
+    analyzer = SwingAnalyzer()
+    processor = VideoProcessor()
+
+    video_data = processor.process_video(test_video)
+    phases = analyzer.analyze_swing(video_data)
+
+    # Every phase should have required fields
+    phase_names = ['backswing_start', 'max_backswing', 'forward_swing_start', 'contact', 'follow_through']
+
+    for phase_name in phase_names:
+        assert phase_name in phases, f"Missing phase: {phase_name}"
+        phase_data = phases[phase_name]
+
+        assert 'detected' in phase_data, f"{phase_name} missing 'detected' field"
+        assert 'confidence' in phase_data, f"{phase_name} missing 'confidence' field"
+        assert 'reason' in phase_data, f"{phase_name} missing 'reason' field"
+
+        assert isinstance(phase_data['detected'], bool), f"{phase_name} 'detected' should be bool"
+        assert isinstance(phase_data['confidence'], (int, float)), f"{phase_name} 'confidence' should be numeric"
+        assert 0.0 <= phase_data['confidence'] <= 1.0, f"{phase_name} confidence out of range"
+
+        print(f"  ✅ {phase_name}: detected={phase_data['detected']}, " +
+              f"confidence={phase_data['confidence']:.2f}, reason={phase_data['reason']}")
+
+    print("  ✅ All phases have required fields")
+
+    # Test 2: Check overall quality score
+    print("\n[Test 2] Testing overall analysis quality score")
+    assert '_analysis_quality' in phases, "Missing '_analysis_quality' in results"
+
+    quality = phases['_analysis_quality']
+    assert 'overall_score' in quality
+    assert 'phases_detected' in quality
+    assert 'total_phases' in quality
+    assert 'detection_rate' in quality
+
+    print(f"  Overall Score: {quality['overall_score']:.2f}")
+    print(f"  Phases Detected: {quality['phases_detected']}/{quality['total_phases']}")
+    print(f"  Detection Rate: {quality['detection_rate']*100:.1f}%")
+    print("  ✅ Analysis quality metrics present")
+
+    print("\n" + "="*60)
+    print("✅ PHASE DETECTION FAILURE HANDLING TESTS PASSED")
+    print("="*60)
+
+
 if __name__ == "__main__":
     """Run all tests."""
     try:
@@ -259,7 +322,8 @@ if __name__ == "__main__":
         test_presets()
         test_config_affects_behavior()
         test_default_behavior()
-        print("\n🎉 All swing analyzer configuration tests completed successfully!\n")
+        test_phase_detection_failure_handling()
+        print("\n🎉 All swing analyzer tests completed successfully!\n")
     except AssertionError as e:
         print(f"\n❌ Test failed: {e}\n")
         sys.exit(1)

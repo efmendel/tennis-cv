@@ -258,56 +258,125 @@ class SwingAnalyzer:
         return metrics
 
     def _detect_phases(self, metrics, frames, velocity_threshold):
-        """Detect the swing phases based on calculated metrics"""
+        """
+        Detect the swing phases based on calculated metrics.
 
-        # Initialize phase results
+        Returns detailed status for each phase including:
+        - detected: bool indicating if phase was found
+        - confidence: 0-1 score for detection quality
+        - reason: explanation of success or failure
+        - frame/timestamp/other metrics if detected
+        """
+
+        # Initialize phase results with default failure state
         phases = {
-            "backswing_start": None,
-            "max_backswing": None,
-            "forward_swing_start": None,
-            "contact": None,
-            "follow_through": None,
+            "backswing_start": {
+                "detected": False,
+                "confidence": 0.0,
+                "reason": "Not yet analyzed"
+            },
+            "max_backswing": {
+                "detected": False,
+                "confidence": 0.0,
+                "reason": "Not yet analyzed"
+            },
+            "forward_swing_start": {
+                "detected": False,
+                "confidence": 0.0,
+                "reason": "Not yet analyzed"
+            },
+            "contact": {
+                "detected": False,
+                "confidence": 0.0,
+                "reason": "Not yet analyzed"
+            },
+            "follow_through": {
+                "detected": False,
+                "confidence": 0.0,
+                "reason": "Not yet analyzed"
+            },
         }
 
         # Find backswing start (wrist goes behind body)
+        backswing_found = False
         for i, m in enumerate(metrics):
             if m["wrist_behind_body"]:
+                # Calculate confidence based on how far behind body
+                wrist_offset = m["body_center_x"] - m["wrist_x"]
+                confidence = min(1.0, wrist_offset / 0.1)  # Full confidence at 0.1 offset
+
                 phases["backswing_start"] = {
+                    "detected": True,
+                    "confidence": confidence,
+                    "reason": "Successfully detected",
                     "frame": m["frame_number"],
                     "timestamp": m["timestamp"],
+                    "wrist_offset": wrist_offset
                 }
+                backswing_found = True
                 break
 
+        if not backswing_found:
+            phases["backswing_start"]["reason"] = "wrist_never_behind_body"
+
         # Find max backswing (furthest back wrist position)
-        if phases["backswing_start"]:
+        if phases["backswing_start"]["detected"]:
             backswing_frames = [m for m in metrics if m["wrist_behind_body"]]
             if backswing_frames:
                 max_back = min(backswing_frames, key=lambda x: x["wrist_x"])
+
+                # Calculate confidence based on backswing depth
+                backswing_depth = max_back["body_center_x"] - max_back["wrist_x"]
+                confidence = min(1.0, backswing_depth / 0.15)  # Full confidence at 0.15 depth
+
                 phases["max_backswing"] = {
+                    "detected": True,
+                    "confidence": confidence,
+                    "reason": "Successfully detected",
                     "frame": max_back["frame_number"],
                     "timestamp": max_back["timestamp"],
                     "wrist_x": max_back["wrist_x"],
+                    "backswing_depth": backswing_depth
                 }
+            else:
+                phases["max_backswing"]["reason"] = "no_backswing_frames_found"
+        else:
+            phases["max_backswing"]["reason"] = "backswing_start_not_detected"
 
         # Find forward swing start (velocity increases after max backswing)
-        if phases["max_backswing"]:
+        if phases["max_backswing"]["detected"]:
             max_back_idx = next(
                 i
                 for i, m in enumerate(metrics)
                 if m["frame_number"] == phases["max_backswing"]["frame"]
             )
 
+            forward_found = False
             for i in range(max_back_idx, len(metrics)):
                 if metrics[i]["wrist_velocity"] > velocity_threshold:
+                    # Calculate confidence based on velocity relative to threshold
+                    velocity_ratio = metrics[i]["wrist_velocity"] / velocity_threshold
+                    confidence = min(1.0, (velocity_ratio - 1.0) / 2.0 + 0.5)  # 0.5-1.0 range
+
                     phases["forward_swing_start"] = {
+                        "detected": True,
+                        "confidence": confidence,
+                        "reason": "Successfully detected",
                         "frame": metrics[i]["frame_number"],
                         "timestamp": metrics[i]["timestamp"],
                         "velocity": metrics[i]["wrist_velocity"],
+                        "velocity_ratio": velocity_ratio
                     }
+                    forward_found = True
                     break
 
+            if not forward_found:
+                phases["forward_swing_start"]["reason"] = "insufficient_velocity"
+        else:
+            phases["forward_swing_start"]["reason"] = "max_backswing_not_detected"
+
         # Find contact point (occurs at PEAK velocity with extended arm)
-        if phases["forward_swing_start"]:
+        if phases["forward_swing_start"]["detected"]:
             forward_idx = next(
                 i
                 for i, m in enumerate(metrics)
@@ -345,31 +414,89 @@ class SwingAnalyzer:
                 )
                 adjusted_contact = metrics[adjusted_idx]
 
+                # Calculate confidence based on velocity and arm extension
+                velocity_score = min(1.0, adjusted_contact["wrist_velocity"] / (velocity_threshold * 2))
+                angle_score = min(1.0, (adjusted_contact["elbow_angle"] - self.contact_angle_min) / 30.0)
+                confidence = (velocity_score + angle_score) / 2.0
+
                 phases["contact"] = {
+                    "detected": True,
+                    "confidence": confidence,
+                    "reason": "Successfully detected",
                     "frame": adjusted_contact["frame_number"],
                     "timestamp": adjusted_contact["timestamp"],
                     "velocity": adjusted_contact["wrist_velocity"],
                     "elbow_angle": adjusted_contact["elbow_angle"],
+                    "velocity_score": velocity_score,
+                    "angle_score": angle_score
                 }
+            else:
+                # Determine specific failure reason
+                no_velocity = all(
+                    m["wrist_velocity"] <= velocity_threshold
+                    for m in metrics[forward_idx:search_window_end]
+                )
+                no_extension = all(
+                    m["elbow_angle"] <= self.contact_angle_min
+                    for m in metrics[forward_idx:search_window_end]
+                )
+
+                if no_velocity and no_extension:
+                    phases["contact"]["reason"] = "insufficient_velocity_and_arm_not_extended"
+                elif no_velocity:
+                    phases["contact"]["reason"] = "insufficient_velocity"
+                elif no_extension:
+                    phases["contact"]["reason"] = "arm_not_extended"
+                else:
+                    phases["contact"]["reason"] = "wrist_position_unclear"
+        else:
+            phases["contact"]["reason"] = "forward_swing_start_not_detected"
 
         # Find follow through (wrist crosses far past body center)
-        if phases["contact"]:
+        if phases["contact"]["detected"]:
             contact_idx = next(
                 i
                 for i, m in enumerate(metrics)
                 if m["frame_number"] == phases["contact"]["frame"]
             )
 
+            follow_found = False
             for i in range(contact_idx, len(metrics)):
                 m = metrics[i]
                 # Wrist significantly past body center on opposite side (using configured offset)
                 if m["wrist_x"] > m["body_center_x"] + self.follow_through_offset:
+                    # Calculate confidence based on how far past body center
+                    follow_distance = m["wrist_x"] - m["body_center_x"]
+                    confidence = min(1.0, follow_distance / 0.3)  # Full confidence at 0.3 distance
+
                     phases["follow_through"] = {
+                        "detected": True,
+                        "confidence": confidence,
+                        "reason": "Successfully detected",
                         "frame": m["frame_number"],
                         "timestamp": m["timestamp"],
                         "wrist_x": m["wrist_x"],
+                        "follow_distance": follow_distance
                     }
+                    follow_found = True
                     break
+
+            if not follow_found:
+                phases["follow_through"]["reason"] = "wrist_never_crossed_body_center"
+        else:
+            phases["follow_through"]["reason"] = "contact_not_detected"
+
+        # Calculate overall analysis quality score
+        detected_count = sum(1 for p in phases.values() if p["detected"])
+        total_phases = len(phases)
+        avg_confidence = sum(p["confidence"] for p in phases.values()) / total_phases
+
+        phases["_analysis_quality"] = {
+            "overall_score": avg_confidence,
+            "phases_detected": detected_count,
+            "total_phases": total_phases,
+            "detection_rate": detected_count / total_phases
+        }
 
         return phases
 
