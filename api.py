@@ -77,7 +77,7 @@ def process_and_callback(video_id, download_url, raw_key, user_id):
                 for chunk in r.iter_content(chunk_size=8192):
                     f.write(chunk)
 
-        # 2. Analyze Video (Your existing logic)
+        # 2. Analyze Video
         print(f"[{video_id}] Analyzing swing...")
         processor = VideoProcessor(pose_config=PRESET_DIFFICULT_VIDEO)
         video_data = processor.process_video(local_input_path)
@@ -89,7 +89,7 @@ def process_and_callback(video_id, download_url, raw_key, user_id):
         )
         results = analyzer.analyze_swing(video_data)
 
-        # 3. Create Annotated Video (Your existing logic)
+        # 3. Create Annotated Video
         print(f"[{video_id}] Rendering output video...")
         visualize_swing_phases(
             video_path=local_input_path,
@@ -97,10 +97,23 @@ def process_and_callback(video_id, download_url, raw_key, user_id):
             output_path=local_output_path,
         )
 
+        # --- SAFETY CHECK: Ensure video actually exists and is not empty ---
+        if not os.path.exists(local_output_path):
+            raise Exception("Output video file was NOT created (File Missing)")
+
+        file_size = os.path.getsize(local_output_path)
+        print(f"[{video_id}] Generated Video Size: {file_size} bytes")
+
+        if file_size < 1000:  # If less than 1KB, something is definitely wrong
+            raise Exception(
+                f"Output video is too small ({file_size} bytes). Encoding failed."
+            )
+        # -------------------------------------------------------------------
+
         # 4. Upload Result to B2
-        # We save it to a 'processed/' folder in B2
-        annotated_key = f"processed/{user_id}/{video_id}_annotated.mp4"
-        print(f"[{video_id}] Uploading to B2: {annotated_key}")
+        # Saving to 'videos/' folder as requested
+        annotated_key = f"videos/{user_id}/{video_id}_annotated.mp4"
+        print(f"[{video_id}] Uploading to B2 Key: {annotated_key}")
 
         b2_client.upload_file(
             local_output_path,
@@ -119,12 +132,12 @@ def process_and_callback(video_id, download_url, raw_key, user_id):
             "status": "completed",
         }
 
-        requests.post(
+        response = requests.post(
             WEBHOOK_URL,
             json=webhook_payload,
             headers={"x-secret": AI_SECRET, "Content-Type": "application/json"},
         )
-        print(f"[{video_id}] Success.")
+        print(f"[{video_id}] Webhook Response: {response.status_code}")
 
     except Exception as e:
         print(f"[{video_id}] ERROR: {str(e)}")
@@ -157,29 +170,22 @@ def trigger_analysis():
     """
     data = request.json
 
-    # Validation
     if not data or "videoUrl" not in data:
         return jsonify({"error": "Missing parameters"}), 400
 
-    # Extract data
     video_id = data.get("videoId")
     download_url = data.get("videoUrl")
     raw_key = data.get("rawKey")
     user_id = data.get("userId")
 
-    # Security: Verify the secret from Next.js if you are sending it in headers
-    # (Your Next.js code sends x-secret header, let's verify it)
     if request.headers.get("x-secret") != AI_SECRET:
         return jsonify({"error": "Unauthorized"}), 401
 
-    # Start processing in a background thread so we don't timeout the Next.js request
-    # Render/Gunicorn will keep this thread alive
     thread = threading.Thread(
         target=process_and_callback, args=(video_id, download_url, raw_key, user_id)
     )
     thread.start()
 
-    # Respond immediately that we accepted the job
     return jsonify({"success": True, "message": "Processing started"}), 202
 
 
