@@ -10,7 +10,7 @@ from video_processor import VideoProcessor, PRESET_DIFFICULT_VIDEO
 def visualize_swing_phases(video_path, output_path="output_annotated.mp4",
                           use_adaptive=False, velocity_threshold=0.5,
                           adaptive_percent=0.15, contact_angle_min=150,
-                          kinematic_chain_mode=False):
+                          kinematic_chain_mode=False, contact_detection_method='velocity_peak'):
     """
     Process video and create annotated version with swing phases overlaid
 
@@ -22,6 +22,7 @@ def visualize_swing_phases(video_path, output_path="output_annotated.mp4",
         adaptive_percent: Percentage of max velocity for threshold (if using adaptive)
         contact_angle_min: Minimum elbow angle at contact in degrees
         kinematic_chain_mode: If True, uses multi-joint biomechanical analysis
+        contact_detection_method: Method for contact detection ('velocity_peak', 'kinematic_chain', 'hybrid')
     """
     print("Processing video...")
     processor = VideoProcessor(pose_config=PRESET_DIFFICULT_VIDEO)
@@ -33,7 +34,8 @@ def visualize_swing_phases(video_path, output_path="output_annotated.mp4",
         contact_angle_min=contact_angle_min,
         use_adaptive_velocity=use_adaptive,
         adaptive_velocity_percent=adaptive_percent,
-        kinematic_chain_mode=kinematic_chain_mode
+        kinematic_chain_mode=kinematic_chain_mode,
+        contact_detection_method=contact_detection_method
     )
     phases = analyzer.analyze_swing(video_data)
 
@@ -320,7 +322,7 @@ if __name__ == "__main__":
 
     # Choose your video and output
     video_path = "uploads/novak_swing.mp4"
-    output_path = "results/kinematic_slomo_novak_swing.mp4"
+    output_path = "results/kinematic_novak_swing.mp4"
 
     # Toggle detection method:
 
@@ -330,6 +332,7 @@ if __name__ == "__main__":
     VELOCITY_THRESHOLD = 0.5
     ADAPTIVE_PERCENT = 0.15
     CONTACT_ANGLE_MIN = 120
+    CONTACT_DETECTION_METHOD = 'kinematic_chain'  # 'velocity_peak', 'kinematic_chain', or 'hybrid'
 
     # Option 2: Traditional mode with fixed threshold (original)
     # USE_KINEMATIC_CHAIN = False
@@ -337,6 +340,7 @@ if __name__ == "__main__":
     # VELOCITY_THRESHOLD = 0.5
     # ADAPTIVE_PERCENT = 0.15
     # CONTACT_ANGLE_MIN = 150
+    # CONTACT_DETECTION_METHOD = 'velocity_peak'
 
     # Option 3: Traditional mode with adaptive threshold
     # USE_KINEMATIC_CHAIN = False
@@ -344,6 +348,7 @@ if __name__ == "__main__":
     # VELOCITY_THRESHOLD = 0.5  # Ignored when adaptive is True
     # ADAPTIVE_PERCENT = 0.15  # 15% of max velocity
     # CONTACT_ANGLE_MIN = 150
+    # CONTACT_DETECTION_METHOD = 'velocity_peak'
 
     # ========================================
 
@@ -352,8 +357,10 @@ if __name__ == "__main__":
     if USE_KINEMATIC_CHAIN:
         print("⚙️  Mode: KINEMATIC CHAIN (multi-joint biomechanical analysis)")
         print(f"    - Adaptive velocity: {USE_ADAPTIVE}")
+        print(f"    - Contact detection: {CONTACT_DETECTION_METHOD}")
     else:
         print(f"⚙️  Mode: {'Adaptive' if USE_ADAPTIVE else 'Fixed'} velocity threshold")
+        print(f"    - Contact detection: {CONTACT_DETECTION_METHOD}")
     print()
 
     visualize_swing_phases(
@@ -363,7 +370,8 @@ if __name__ == "__main__":
         velocity_threshold=VELOCITY_THRESHOLD,
         adaptive_percent=ADAPTIVE_PERCENT,
         contact_angle_min=CONTACT_ANGLE_MIN,
-        kinematic_chain_mode=USE_KINEMATIC_CHAIN
+        kinematic_chain_mode=USE_KINEMATIC_CHAIN,
+        contact_detection_method=CONTACT_DETECTION_METHOD
     )
 
     print("\n✅ Done! You can now play the annotated video.")
