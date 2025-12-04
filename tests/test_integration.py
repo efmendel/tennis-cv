@@ -134,11 +134,8 @@ def test_full_pipeline_with_all_improvements():
             # Uncomment to actually generate:
             # visualize_swing_phases(
             #     video_path,
-            #     output_path,
-            #     use_adaptive=True,
-            #     adaptive_percent=0.15,
-            #     contact_angle_min=120,
-            #     kinematic_chain_mode=True
+            #     analysis_results=phases,  # Now using SwingAnalysisResults object
+            #     output_path=output_path
             # )
 
             # Record results

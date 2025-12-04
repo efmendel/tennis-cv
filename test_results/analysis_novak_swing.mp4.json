@@ -1,0 +1,96 @@
+{
+  "phases": {
+    "unit_turn": {
+      "detected": true,
+      "frame": 1,
+      "timestamp": 0.016683333333333335,
+      "confidence": 1.0,
+      "shoulder_rotation": 151.58759324983188
+    },
+    "backswing": {
+      "detected": true,
+      "frame": 114,
+      "timestamp": 1.9019,
+      "confidence": 1.0,
+      "shoulder_rotation": 0.0,
+      "max_wrist_depth": 0.8377546221017838
+    },
+    "forward_swing": {
+      "detected": true,
+      "frame": 432,
+      "timestamp": 7.2072,
+      "confidence": 0.7605242922103341,
+      "hip_velocity": 91.70799361949608
+    },
+    "contact": {
+      "detected": false,
+      "frame": null,
+      "timestamp": null,
+      "confidence": 0.0
+    },
+    "follow_through": {
+      "detected": false,
+      "frame": null,
+      "timestamp": null,
+      "confidence": 0.0
+    }
+  },
+  "engine": {
+    "hip_shoulder_separation": {
+      "max_value": 344.15390080789365,
+      "frame": 220,
+      "timestamp": 3.6703333333333332
+    },
+    "max_shoulder_rotation": {
+      "value": -179.0226643942957,
+      "frame": 221,
+      "timestamp": 3.6870166666666666
+    },
+    "max_hip_rotation": {
+      "value": -179.82202596235118,
+      "frame": 168,
+      "timestamp": 2.8028
+    }
+  },
+  "tempo": {
+    "backswing_duration": 7.190516666666667,
+    "forward_swing_duration": null,
+    "swing_rhythm_ratio": null
+  },
+  "kinetic_chain": {
+    "peak_velocity_sequence": {
+      "hip": {
+        "frame": 169,
+        "timestamp": 2.8194833333333333,
+        "velocity": 21562.18529673324
+      },
+      "shoulder": {
+        "frame": 221,
+        "timestamp": 3.6870166666666666,
+        "velocity": 21369.60492284671
+      },
+      "elbow": {
+        "frame": 910,
+        "timestamp": 15.181833333333334,
+        "velocity": 3.1133633222993033
+      },
+      "wrist": {
+        "frame": 914,
+        "timestamp": 15.248566666666667,
+        "velocity": 4.9194865428491426
+      }
+    },
+    "chain_lag": {
+      "hip_to_shoulder": 0.8675333333333333,
+      "shoulder_to_elbow": 11.494816666666667,
+      "elbow_to_wrist": 0.06673333333333353
+    },
+    "confidence": 1.0
+  },
+  "video_quality": null,
+  "tracking_quality": {
+    "detection_rate": 1.0,
+    "high_confidence_rate": 0.8782435129740519,
+    "average_confidence": 0.9161478568347378
+  }
+}

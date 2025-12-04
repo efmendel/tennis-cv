@@ -10,6 +10,7 @@ from kinematic_chain_utils import (
     calculate_knee_bend,
     calculate_trunk_lean,
 )
+from analysis_results import SwingAnalysisResults
 
 
 class SwingAnalyzerConfig:
@@ -205,19 +206,34 @@ class SwingAnalyzer:
     def analyze_swing(self, video_data):
         """
         Analyze swing phases from processed video data
-        Returns dict with timestamps for each phase
+
+        Returns:
+            SwingAnalysisResults: Comprehensive analysis results object containing:
+                - phases: All detected swing phases with metrics
+                - engine: Hip-shoulder separation and rotation metrics
+                - tempo: Timing and rhythm metrics
+                - kinetic_chain: Velocity sequencing metrics
+                - video_quality: Video quality assessment
+                - tracking_quality: Pose tracking quality
         """
         frames = video_data["frames"]
         fps = video_data["fps"]
+
+        # Create results object
+        results = SwingAnalysisResults()
+
+        # Set tracking quality from video_data
+        if 'tracking_quality' in video_data:
+            results.set_tracking_quality(video_data['tracking_quality'])
 
         # Filter to only frames with pose detected
         valid_frames = [f for f in frames if f["pose_detected"]]
 
         if len(valid_frames) < self.min_valid_frames:
-            return {
-                "error": f"Not enough frames with pose detected (need at least {self.min_valid_frames})",
-                "frames_detected": len(valid_frames),
-            }
+            # Return empty results with error information
+            print(f"❌ Error: Not enough frames with pose detected (need at least {self.min_valid_frames})")
+            print(f"   Frames detected: {len(valid_frames)}")
+            return results
 
         print(f"Analyzing {len(valid_frames)} valid frames...")
 
@@ -236,10 +252,13 @@ class SwingAnalyzer:
                 f"   Calculated threshold: {velocity_threshold:.4f} ({self.adaptive_velocity_percent * 100:.0f}% of max)"
             )
 
-        # Detect swing phases
-        phases = self._detect_phases(frame_metrics, valid_frames, velocity_threshold, self.kinematic_chain_mode)
+        # Detect swing phases (legacy method returns dict)
+        phases_dict = self._detect_phases(frame_metrics, valid_frames, velocity_threshold, self.kinematic_chain_mode)
 
-        return phases
+        # Populate SwingAnalysisResults from phases_dict
+        self._populate_results_from_phases(results, phases_dict, frame_metrics, fps)
+
+        return results
 
     def _calculate_frame_metrics(self, frames, fps):
         """Calculate angles and velocities for each frame"""
@@ -859,6 +878,304 @@ class SwingAnalyzer:
         }
 
         return phases
+
+    def _populate_results_from_phases(self, results, phases_dict, frame_metrics, fps):
+        """
+        Populate SwingAnalysisResults object from legacy phases dict.
+
+        This method converts the old dict-based phase detection results into
+        the new SwingAnalysisResults structure with comprehensive metrics.
+
+        Args:
+            results: SwingAnalysisResults object to populate
+            phases_dict: Legacy dict with phase detection results
+            frame_metrics: List of frame metrics (for calculating engine/tempo/kinetic chain)
+            fps: Video frames per second
+        """
+        # Map old phase names to new phase names
+        phase_mapping = {
+            'backswing_start': 'unit_turn',
+            'max_backswing': 'backswing',
+            'forward_swing_start': 'forward_swing',
+            'contact': 'contact',
+            'follow_through': 'follow_through'
+        }
+
+        # Add all phases to results
+        for old_name, new_name in phase_mapping.items():
+            if old_name in phases_dict:
+                phase_data = phases_dict[old_name]
+
+                # Extract base fields
+                detected = phase_data.get('detected', False)
+                frame = phase_data.get('frame')
+                timestamp = phase_data.get('timestamp')
+                confidence = phase_data.get('confidence', 0.0)
+
+                # Add phase-specific metrics
+                phase_metrics = {}
+
+                if new_name == 'unit_turn' and detected:
+                    # Add shoulder rotation for unit turn
+                    phase_metrics['shoulder_rotation'] = phase_data.get('shoulder_rotation', 0.0)
+
+                elif new_name == 'backswing' and detected:
+                    # Add max wrist depth and shoulder rotation for backswing
+                    phase_metrics['shoulder_rotation'] = phase_data.get('shoulder_rotation', 0.0)
+                    # Calculate max wrist depth (normalized wrist-x position relative to body)
+                    if frame:
+                        metric = next((m for m in frame_metrics if m['frame_number'] == frame), None)
+                        if metric:
+                            # Max depth = how far back wrist is (lower x = more back)
+                            phase_metrics['max_wrist_depth'] = 1.0 - metric.get('wrist_x', 0.5)
+
+                elif new_name == 'forward_swing' and detected:
+                    # Add hip velocity for forward swing
+                    phase_metrics['hip_velocity'] = phase_data.get('hip_velocity', 0.0)
+
+                elif new_name == 'contact' and detected:
+                    # Add wrist velocity and elbow angle for contact
+                    phase_metrics['wrist_velocity'] = phase_data.get('velocity', 0.0)
+                    phase_metrics['elbow_angle'] = phase_data.get('elbow_angle', 0.0)
+                    phase_metrics['method'] = phase_data.get('method', 'unknown')
+                    # Add kinematic chain metrics if available
+                    if 'shoulder_velocity' in phase_data:
+                        phase_metrics['shoulder_velocity'] = phase_data['shoulder_velocity']
+                    if 'elbow_velocity' in phase_data:
+                        phase_metrics['elbow_velocity'] = phase_data['elbow_velocity']
+                    if 'sequencing_quality' in phase_data:
+                        phase_metrics['sequencing_quality'] = phase_data['sequencing_quality']
+
+                # Add the phase
+                results.add_phase(
+                    new_name,
+                    detected=detected,
+                    frame=frame,
+                    timestamp=timestamp,
+                    confidence=confidence,
+                    **phase_metrics
+                )
+
+        # Calculate and add engine metrics
+        self._calculate_engine_metrics(results, frame_metrics)
+
+        # Calculate and add tempo metrics
+        self._calculate_tempo_metrics(results, phases_dict)
+
+        # Calculate and add kinetic chain metrics
+        self._calculate_kinetic_chain_metrics(results, frame_metrics, phases_dict)
+
+    def _calculate_engine_metrics(self, results, frame_metrics):
+        """
+        Calculate engine metrics (hip-shoulder separation, rotations).
+
+        Args:
+            results: SwingAnalysisResults object to populate
+            frame_metrics: List of frame metrics
+        """
+        if not frame_metrics:
+            return
+
+        # Find maximum hip-shoulder separation
+        max_separation = 0.0
+        max_sep_frame = None
+        max_sep_timestamp = None
+
+        # Find maximum shoulder rotation (most backward)
+        max_shoulder_rot = 0.0
+        max_shoulder_frame = None
+        max_shoulder_timestamp = None
+
+        # Find maximum hip rotation (most backward)
+        max_hip_rot = 0.0
+        max_hip_frame = None
+        max_hip_timestamp = None
+
+        for metric in frame_metrics:
+            hip_rot = metric.get('hip_rotation', 0.0)
+            shoulder_rot = metric.get('shoulder_rotation', 0.0)
+            separation = abs(shoulder_rot - hip_rot)
+
+            # Track max separation
+            if separation > max_separation:
+                max_separation = separation
+                max_sep_frame = metric['frame_number']
+                max_sep_timestamp = metric['timestamp']
+
+            # Track max shoulder rotation (most negative = most backward)
+            if shoulder_rot < max_shoulder_rot:
+                max_shoulder_rot = shoulder_rot
+                max_shoulder_frame = metric['frame_number']
+                max_shoulder_timestamp = metric['timestamp']
+
+            # Track max hip rotation (most negative = most backward)
+            if hip_rot < max_hip_rot:
+                max_hip_rot = hip_rot
+                max_hip_frame = metric['frame_number']
+                max_hip_timestamp = metric['timestamp']
+
+        # Add engine metrics
+        results.add_engine_metrics(
+            hip_shoulder_sep={
+                'max_value': max_separation,
+                'frame': max_sep_frame,
+                'timestamp': max_sep_timestamp
+            },
+            max_shoulder_rot={
+                'value': max_shoulder_rot,
+                'frame': max_shoulder_frame,
+                'timestamp': max_shoulder_timestamp
+            },
+            max_hip_rot={
+                'value': max_hip_rot,
+                'frame': max_hip_frame,
+                'timestamp': max_hip_timestamp
+            }
+        )
+
+    def _calculate_tempo_metrics(self, results, phases_dict):
+        """
+        Calculate tempo metrics (durations, rhythm ratio).
+
+        Args:
+            results: SwingAnalysisResults object to populate
+            phases_dict: Legacy dict with phase detection results
+        """
+        # Get phase timestamps
+        unit_turn_ts = None
+        forward_swing_ts = None
+        contact_ts = None
+
+        if 'backswing_start' in phases_dict and phases_dict['backswing_start'].get('detected'):
+            unit_turn_ts = phases_dict['backswing_start'].get('timestamp')
+
+        if 'forward_swing_start' in phases_dict and phases_dict['forward_swing_start'].get('detected'):
+            forward_swing_ts = phases_dict['forward_swing_start'].get('timestamp')
+
+        if 'contact' in phases_dict and phases_dict['contact'].get('detected'):
+            contact_ts = phases_dict['contact'].get('timestamp')
+
+        # Calculate durations
+        backswing_duration = None
+        forward_swing_duration = None
+        swing_rhythm_ratio = None
+
+        if unit_turn_ts is not None and forward_swing_ts is not None:
+            backswing_duration = forward_swing_ts - unit_turn_ts
+
+        if forward_swing_ts is not None and contact_ts is not None:
+            forward_swing_duration = contact_ts - forward_swing_ts
+
+        if backswing_duration and forward_swing_duration and forward_swing_duration > 0:
+            swing_rhythm_ratio = backswing_duration / forward_swing_duration
+
+        # Add tempo metrics
+        results.add_tempo_metrics(
+            backswing_duration=backswing_duration,
+            forward_swing_duration=forward_swing_duration,
+            swing_rhythm_ratio=swing_rhythm_ratio
+        )
+
+    def _calculate_kinetic_chain_metrics(self, results, frame_metrics, phases_dict):
+        """
+        Calculate kinetic chain metrics (velocity sequencing, lag times).
+
+        Args:
+            results: SwingAnalysisResults object to populate
+            frame_metrics: List of frame metrics
+            phases_dict: Legacy dict with phase detection results
+        """
+        if not frame_metrics:
+            return
+
+        # Find peak velocities for each segment
+        max_hip_vel = 0.0
+        max_hip_frame = None
+        max_hip_ts = None
+
+        max_shoulder_vel = 0.0
+        max_shoulder_frame = None
+        max_shoulder_ts = None
+
+        max_elbow_vel = 0.0
+        max_elbow_frame = None
+        max_elbow_ts = None
+
+        max_wrist_vel = 0.0
+        max_wrist_frame = None
+        max_wrist_ts = None
+
+        for metric in frame_metrics:
+            hip_vel = metric.get('hip_velocity', 0.0)
+            shoulder_vel = metric.get('shoulder_velocity', 0.0)
+            elbow_vel = metric.get('elbow_velocity', 0.0)
+            wrist_vel = metric.get('wrist_velocity', 0.0)
+
+            if hip_vel > max_hip_vel:
+                max_hip_vel = hip_vel
+                max_hip_frame = metric['frame_number']
+                max_hip_ts = metric['timestamp']
+
+            if shoulder_vel > max_shoulder_vel:
+                max_shoulder_vel = shoulder_vel
+                max_shoulder_frame = metric['frame_number']
+                max_shoulder_ts = metric['timestamp']
+
+            if elbow_vel > max_elbow_vel:
+                max_elbow_vel = elbow_vel
+                max_elbow_frame = metric['frame_number']
+                max_elbow_ts = metric['timestamp']
+
+            if wrist_vel > max_wrist_vel:
+                max_wrist_vel = wrist_vel
+                max_wrist_frame = metric['frame_number']
+                max_wrist_ts = metric['timestamp']
+
+        # Build sequence dict
+        sequence = {
+            'hip': {'frame': max_hip_frame, 'timestamp': max_hip_ts, 'velocity': max_hip_vel},
+            'shoulder': {'frame': max_shoulder_frame, 'timestamp': max_shoulder_ts, 'velocity': max_shoulder_vel},
+            'elbow': {'frame': max_elbow_frame, 'timestamp': max_elbow_ts, 'velocity': max_elbow_vel},
+            'wrist': {'frame': max_wrist_frame, 'timestamp': max_wrist_ts, 'velocity': max_wrist_vel}
+        }
+
+        # Calculate lag times (time between peak velocities)
+        chain_lag = {}
+        if max_hip_ts is not None and max_shoulder_ts is not None:
+            chain_lag['hip_to_shoulder'] = max_shoulder_ts - max_hip_ts
+        if max_shoulder_ts is not None and max_elbow_ts is not None:
+            chain_lag['shoulder_to_elbow'] = max_elbow_ts - max_shoulder_ts
+        if max_elbow_ts is not None and max_wrist_ts is not None:
+            chain_lag['elbow_to_wrist'] = max_wrist_ts - max_elbow_ts
+
+        # Calculate confidence based on proper sequencing
+        # Proper sequence: hip peaks first, then shoulder, then elbow, then wrist
+        confidence = 0.0
+        if all([max_hip_ts, max_shoulder_ts, max_elbow_ts, max_wrist_ts]):
+            # Check if sequence is correct
+            correct_sequence = (
+                max_hip_ts <= max_shoulder_ts <= max_elbow_ts <= max_wrist_ts
+            )
+            if correct_sequence:
+                confidence = 1.0
+            else:
+                # Partial credit for partial correct ordering
+                correct_pairs = 0
+                total_pairs = 3
+                if max_hip_ts <= max_shoulder_ts:
+                    correct_pairs += 1
+                if max_shoulder_ts <= max_elbow_ts:
+                    correct_pairs += 1
+                if max_elbow_ts <= max_wrist_ts:
+                    correct_pairs += 1
+                confidence = correct_pairs / total_pairs
+
+        # Add kinetic chain metrics
+        results.add_kinetic_chain_metrics(
+            sequence=sequence,
+            chain_lag=chain_lag,
+            confidence=confidence
+        )
 
 
 # Test the analyzer

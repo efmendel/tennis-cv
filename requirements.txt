@@ -38,3 +38,6 @@ starlette==0.48.0
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 uvicorn==0.37.0
+flask==3.0.0
+flask-cors==4.0.0
+gunicorn==21.2.0
