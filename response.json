@@ -1,0 +1,108 @@
+{
+  "analysis": {
+    "engine": {
+      "hip_shoulder_separation": {
+        "frame": 201,
+        "max_value": 331.22807501392367,
+        "timestamp": 6.7
+      },
+      "max_hip_rotation": {
+        "frame": 199,
+        "timestamp": 6.633333333333334,
+        "value": -177.5455332008254
+      },
+      "max_shoulder_rotation": {
+        "frame": 206,
+        "timestamp": 6.866666666666666,
+        "value": -179.71983966154525
+      }
+    },
+    "kinetic_chain": {
+      "chain_lag": {
+        "elbow_to_wrist": -0.9000000000000004,
+        "hip_to_shoulder": 1.1999999999999993,
+        "shoulder_to_elbow": 1.9333333333333345
+      },
+      "confidence": 0.6666666666666666,
+      "peak_velocity_sequence": {
+        "elbow": {
+          "frame": 264,
+          "timestamp": 8.8,
+          "velocity": 0.9875916271598741
+        },
+        "hip": {
+          "frame": 170,
+          "timestamp": 5.666666666666667,
+          "velocity": 10364.996079096381
+        },
+        "shoulder": {
+          "frame": 206,
+          "timestamp": 6.866666666666666,
+          "velocity": 10750.986053733039
+        },
+        "wrist": {
+          "frame": 237,
+          "timestamp": 7.9,
+          "velocity": 1.641972772079626
+        }
+      }
+    },
+    "phases": {
+      "backswing": {
+        "confidence": 0.5924208958943685,
+        "detected": true,
+        "frame": 206,
+        "max_wrist_depth": 0.8650795966386795,
+        "shoulder_rotation": 0.0,
+        "timestamp": 6.866666666666666
+      },
+      "contact": {
+        "confidence": 0.75,
+        "detected": true,
+        "elbow_angle": 143.60968009562677,
+        "elbow_velocity": 0.7260251321159613,
+        "frame": 240,
+        "method": "kinematic_chain",
+        "sequencing_quality": 1.0,
+        "shoulder_velocity": 117.30372075719558,
+        "timestamp": 8.0,
+        "wrist_velocity": 1.3199239733286272
+      },
+      "follow_through": {
+        "confidence": 0.0,
+        "detected": false,
+        "frame": null,
+        "timestamp": null
+      },
+      "forward_swing": {
+        "confidence": 0.7899990645963071,
+        "detected": true,
+        "frame": 207,
+        "hip_velocity": 124.45530113124107,
+        "timestamp": 6.9
+      },
+      "unit_turn": {
+        "confidence": 0.5035713613033295,
+        "detected": true,
+        "frame": 1,
+        "shoulder_rotation": -102.26573955309286,
+        "timestamp": 0.03333333333333333
+      }
+    },
+    "tempo": {
+      "backswing_duration": 6.866666666666667,
+      "forward_swing_duration": 1.0999999999999996,
+      "swing_rhythm_ratio": 6.242424242424245
+    },
+    "tracking_quality": {
+      "average_confidence": 0.8897267731561048,
+      "detection_rate": 0.8291316526610645,
+      "high_confidence_rate": 0.803921568627451
+    },
+    "video_quality": null
+  },
+  "download_url": "/api/download/f9472148-8b99-42b3-9476-1dbc5179e5a2",
+  "expires_at": "2025-12-03T22:18:24.259960",
+  "video_id": "f9472148-8b99-42b3-9476-1dbc5179e5a2",
+  "video_url": "/api/video/f9472148-8b99-42b3-9476-1dbc5179e5a2"
+}

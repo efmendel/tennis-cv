@@ -1,81 +1,290 @@
-# Tennis Swing Analysis
+# Tennis Swing Analysis API
 
-Analyzes tennis swings using MediaPipe pose detection and automatically identifies swing phases.
+AI-powered tennis swing analysis using computer vision and biomechanical analysis. Upload a video of your tennis swing and get detailed insights into your technique, including phase detection, engine metrics, tempo analysis, and kinetic chain sequencing.
+
+## Features
+
+- **Swing Phase Detection**: Automatically identifies 5 key phases (unit turn, backswing, forward swing, contact, follow through)
+- **Engine Metrics**: Measures hip-shoulder separation and rotation angles
+- **Tempo Analysis**: Calculates swing timing and rhythm ratios
+- **Kinetic Chain Analysis**: Tracks velocity sequencing from hip → shoulder → elbow → wrist
+- **Annotated Video Output**: Creates video with overlays showing phases, metrics, and tracking quality
+- **REST API**: Easy integration with web/mobile applications
+- **Auto Cleanup**: Automatic deletion of processed videos after 1 hour
+
+## Technology Stack
+
+- **Computer Vision**: MediaPipe Pose for body landmark detection
+- **Analysis**: Custom biomechanical algorithms for swing analysis
+- **API**: Flask REST API with CORS support
+- **Video Processing**: OpenCV for video I/O and annotation
+
+## Installation
+
+### Prerequisites
+
+- Python 3.8 or higher
+- pip package manager
+- 2GB+ free disk space (for videos and MediaPipe models)
+
+### Steps
+
+1. **Create virtual environment** (if not already created)
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+2. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Create required directories**
+   ```bash
+   mkdir -p uploads results test_results
+   ```
 
 ## Quick Start
 
+### Run the API Server
+
 ```bash
-# 1. Activate virtual environment
-source venv/bin/activate
-
-# 2. Put your video in uploads/
-# uploads/my_swing.mp4
-
-# 3. Run the analysis
-python visualize_swing.py
-
-# 4. Check output
-open results/annotated_swing.mp4
+python api.py
 ```
+
+The API will start on `http://localhost:5001`
+
+### Test with Sample Video
+
+```bash
+# Upload and analyze a video
+curl -X POST http://localhost:5001/api/analyze \
+  -F "video=@uploads/test_swing.mp4"
+
+# Response will include video_id for downloading results
+```
+
+### Test Complete Pipeline
+
+```bash
+# Test all functionality with local test script
+python test_api_flow.py
+
+# Or test single video
+python test_api_flow.py uploads/your_video.mp4
+```
+
+## API Documentation
+
+Base URL: `http://localhost:5001`
+
+### POST /api/analyze
+
+Upload and analyze a tennis swing video.
+
+**Request:**
+```bash
+curl -X POST http://localhost:5001/api/analyze \
+  -F "video=@my_swing.mp4" \
+  -F "kinematic_chain_mode=true" \
+  -F "contact_detection_method=kinematic_chain"
+```
+
+**Parameters:**
+- `video` (file, required): Video file (mp4, mov, avi, mkv, webm)
+- `kinematic_chain_mode` (bool): Use kinematic chain analysis (default: true)
+- `contact_detection_method` (string): 'velocity_peak', 'kinematic_chain', or 'hybrid' (default: 'kinematic_chain')
+- `use_adaptive` (bool): Use adaptive velocity threshold (default: true)
+- `adaptive_percent` (float): Percentage of max velocity (default: 0.15)
+- `contact_angle_min` (int): Minimum elbow angle at contact (default: 120)
+
+**Response (200 OK):**
+```json
+{
+  "video_id": "550e8400-e29b-41d4-a716-446655440000",
+  "video_url": "/api/video/550e8400-e29b-41d4-a716-446655440000",
+  "download_url": "/api/download/550e8400-e29b-41d4-a716-446655440000",
+  "expires_at": "2025-12-04T12:00:00",
+  "analysis": {
+    "phases": {
+      "unit_turn": {...},
+      "backswing": {...},
+      "forward_swing": {...},
+      "contact": {...},
+      "follow_through": {...}
+    },
+    "engine": {
+      "hip_shoulder_separation": {...},
+      "max_shoulder_rotation": {...},
+      "max_hip_rotation": {...}
+    },
+    "tempo": {
+      "backswing_duration": 1.2,
+      "forward_swing_duration": 0.3,
+      "swing_rhythm_ratio": 4.0
+    },
+    "kinetic_chain": {
+      "peak_velocity_sequence": {...},
+      "chain_lag": {...},
+      "confidence": 0.92
+    },
+    "tracking_quality": {...}
+  }
+}
+```
+
+### GET /api/video/{video_id}
+
+Stream the annotated video for browser playback.
+
+**Request:**
+```bash
+curl http://localhost:5001/api/video/550e8400-e29b-41d4-a716-446655440000
+```
+
+### GET /api/download/{video_id}
+
+Download the annotated video file.
+
+**Request:**
+```bash
+curl -O http://localhost:5001/api/download/550e8400-e29b-41d4-a716-446655440000
+```
+
+### GET /api/health
+
+Health check endpoint.
+
+**Request:**
+```bash
+curl http://localhost:5001/api/health
+```
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "cached_videos": 3,
+  "config": {
+    "upload_folder": "uploads",
+    "results_folder": "results",
+    "video_expiry_hours": 1,
+    "max_video_size_mb": 100,
+    "allowed_formats": ["mp4", "mov", "avi", "mkv", "webm"]
+  }
+}
+```
+
+See [full API documentation below](#full-api-reference) for all endpoints.
 
 ## Configuration
 
-Edit the top of [visualize_swing.py](visualize_swing.py):
+Environment variables for customization:
 
-```python
-video_path = "uploads/my_swing.mp4"  # Your video
-output_path = "results/annotated_swing.mp4"
+```bash
+# Upload directory (default: uploads)
+export UPLOAD_FOLDER=uploads
 
-USE_ADAPTIVE = False        # Keep False for normal videos
-VELOCITY_THRESHOLD = 0.5    # Lower = detects slower swings
-CONTACT_ANGLE_MIN = 150     # Lower = detects bent-arm swings
+# Results directory (default: results)
+export RESULTS_FOLDER=results
+
+# Video expiry time in hours (default: 1)
+export VIDEO_EXPIRY_HOURS=1
+
+# Max video size in MB (default: 100)
+export MAX_VIDEO_SIZE_MB=100
 ```
 
-## What It Detects
+## Analysis Metrics Explained
 
-1. **Backswing Start** - Wrist goes behind body
-2. **Max Backswing** - Furthest back position
-3. **Forward Swing** - Wrist accelerates forward
-4. **Contact** - Peak velocity with extended arm
-5. **Follow Through** - Wrist crosses past body
+### Phases
 
-## Files
+- **Unit Turn**: Initial shoulder rotation to prepare for backswing
+- **Backswing**: Maximum loading position with shoulder coil
+- **Forward Swing**: Start of acceleration toward ball
+- **Contact**: Ball strike point (peak wrist velocity + arm extension)
+- **Follow Through**: Deceleration and finish position
 
-**Use these:**
-- `visualize_swing.py` - Main script (run this)
-- `video_processor.py` - Extracts pose from video (auto-runs)
-- `swing_analyzer.py` - Detects swing phases (auto-runs)
-- `utils.py` - Helper functions (auto-runs)
-- `test_mediapipe.py` - Test if skeleton detection works (optional)
+### Engine Metrics
 
-**Ignore these:**
-- `swing_analyzer_v2.py` - Old experiment
-- `visualize_swing_v2.py` - Old experiment
-- `swing_config.py` - Old experiment
+- **Hip-Shoulder Separation**: Angle difference between hips and shoulders (power generation)
+- **Max Shoulder Rotation**: Peak shoulder turn during backswing
+- **Max Hip Rotation**: Peak hip rotation during loading phase
+
+### Tempo Metrics
+
+- **Backswing Duration**: Time from unit turn to forward swing start
+- **Forward Swing Duration**: Time from forward swing start to contact
+- **Swing Rhythm Ratio**: Ratio of backswing to forward swing duration
+
+### Kinetic Chain
+
+- **Peak Velocity Sequence**: Timing of peak velocities (should be hip → shoulder → elbow → wrist)
+- **Chain Lag**: Time delays between segment peak velocities
+- **Confidence**: How well the kinetic chain follows proper sequencing
+
+## Testing
+
+### Run Unit Tests
+```bash
+# Test swing analyzer
+python tests/test_swing_analyzer.py
+
+# Test integration
+python tests/test_integration.py
+```
+
+### Run Full Pipeline Test
+```bash
+# Tests all videos with complete validation
+python test_api_flow.py
+```
+
+See [TEST_API_FLOW_README.md](TEST_API_FLOW_README.md) for detailed testing documentation.
 
 ## Troubleshooting
 
-**No skeleton showing?**
-```bash
-python test_mediapipe.py  # Press 'q' to quit
-```
-Make sure person is fully visible in frame.
+### "No pose detected"
+- Ensure player is fully visible in frame
+- Check video quality and lighting
+- Try using `PRESET_DIFFICULT_VIDEO` configuration
 
-**Contact not detected?**
-- Lower `CONTACT_ANGLE_MIN` to 130 or 120
-- Video might be too long (trim to 2-3 seconds)
+### "Contact not detected"
+- Adjust `contact_angle_min` parameter (lower for bent arm shots)
+- Try `contact_detection_method=hybrid` for better detection
+- Ensure swing has clear acceleration and contact point
 
-**"ModuleNotFoundError"?**
-```bash
-source venv/bin/activate
-```
+### "File too large"
+- Default max size is 100MB
+- Increase with `MAX_VIDEO_SIZE_MB` environment variable
+- Or compress video before uploading
 
-## How It Works
+### API not responding
+- Check if server is running: `curl http://localhost:5001/api/health`
+- Verify port 5001 is not in use
+- Check logs for errors
 
-1. `visualize_swing.py` calls `video_processor.py`
-2. MediaPipe extracts pose landmarks from each frame
-3. `swing_analyzer.py` calculates velocities and angles
-4. Swing phases detected based on wrist position and velocity
-5. Annotated video created with skeleton overlay and labels
+## Full API Reference
 
-That's it!
+Complete documentation of all API endpoints with detailed request/response examples.
+
+### Endpoints
+
+1. **POST /api/analyze** - Upload and analyze video
+2. **GET /api/video/{video_id}** - Stream annotated video
+3. **GET /api/download/{video_id}** - Download annotated video
+4. **GET /api/status/{video_id}** - Get processing status
+5. **GET /api/analysis/{video_id}** - Get analysis results only
+6. **GET /api/health** - Health check
+
+For complete endpoint documentation with all parameters and response schemas, see the API Documentation section above.
+
+## License
+
+[Specify your license here]
+
+---
+
+**Version**: 1.0.0
+**Last Updated**: December 2025

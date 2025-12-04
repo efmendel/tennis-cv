@@ -87,6 +87,22 @@ cleanup_thread = threading.Thread(target=cleanup_expired_videos, daemon=True)
 cleanup_thread.start()
 
 
+@app.route("/", methods=["GET"])
+def root():
+    return jsonify(
+        {
+            "message": "Tennis Swing Analysis API",
+            "status": "running",
+            "version": "1.0",
+            "endpoints": {
+                "analyze": "POST /api/analyze",
+                "get_video": "GET /api/video/<video_id>",
+                "download": "GET /api/download/<video_id>",
+            },
+        }
+    )
+
+
 @app.route("/api/analyze", methods=["POST"])
 def analyze():
     """
