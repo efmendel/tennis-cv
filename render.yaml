@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: tennis-swing-ai-worker
+    env: python
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn api:app --bind 0.0.0.0:$PORT --workers 2 --timeout 300 --worker-class sync
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.0
+    healthCheckPath: /health

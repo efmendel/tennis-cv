@@ -3,9 +3,9 @@ import json
 import cv2  # pylint: disable=no-member
 import mediapipe as mp
 
-from swing_analyzer import SwingAnalyzer
-from video_processor import VideoProcessor, PRESET_DIFFICULT_VIDEO
 from analysis_results import SwingAnalysisResults
+from swing_analyzer import SwingAnalyzer
+from video_processor import PRESET_DIFFICULT_VIDEO, VideoProcessor
 
 
 def visualize_swing_phases(
@@ -170,11 +170,13 @@ def visualize_swing_phases(
             tracking_color = (
                 (0, 255, 0)
                 if detection_rate > 0.7
-                else (0, 255, 255) if detection_rate > 0.5 else (0, 0, 255)
+                else (0, 255, 255)
+                if detection_rate > 0.5
+                else (0, 0, 255)
             )
             cv2.putText(
                 frame,
-                f"Tracking: {detection_rate*100:.1f}%",
+                f"Tracking: {detection_rate * 100:.1f}%",
                 (width - 340, 40),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
@@ -189,11 +191,13 @@ def visualize_swing_phases(
             analysis_color = (
                 (0, 255, 0)
                 if overall_confidence > 0.7
-                else (0, 255, 255) if overall_confidence > 0.5 else (0, 0, 255)
+                else (0, 255, 255)
+                if overall_confidence > 0.5
+                else (0, 0, 255)
             )
             cv2.putText(
                 frame,
-                f"Analysis: {overall_confidence*100:.1f}%",
+                f"Analysis: {overall_confidence * 100:.1f}%",
                 (width - 340, 75),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,

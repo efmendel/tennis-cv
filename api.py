@@ -54,6 +54,19 @@ b2_client = boto3.client(
 )
 
 
+@app.route("/health", methods=["GET"])
+def health_check():
+    """Health check for Render"""
+    return jsonify(
+        {
+            "status": "healthy",
+            "service": "Tennis Swing AI Worker",
+            "version": "1.0",
+            "b2_configured": bool(B2_BUCKET_NAME and B2_ENDPOINT),
+        }
+    )
+
+
 @app.route("/", methods=["GET"])
 def health():
     return jsonify({"status": "AI Worker Running"})
