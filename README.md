@@ -2,48 +2,46 @@
 
 AI-powered tennis swing analysis using computer vision and biomechanical analysis. Upload a video of your tennis swing and get detailed insights into your technique, including phase detection, engine metrics, tempo analysis, and kinetic chain sequencing.
 
-## Features
+This Python model is a part of the ShotVision application, which has these 2 parts
 
-- **Swing Phase Detection**: Automatically identifies 5 key phases (unit turn, backswing, forward swing, contact, follow through)
-- **Engine Metrics**: Measures hip-shoulder separation and rotation angles
-- **Tempo Analysis**: Calculates swing timing and rhythm ratios
-- **Kinetic Chain Analysis**: Tracks velocity sequencing from hip → shoulder → elbow → wrist
-- **Annotated Video Output**: Creates video with overlays showing phases, metrics, and tracking quality
-- **REST API**: Easy integration with web/mobile applications
-- **Auto Cleanup**: Automatic deletion of processed videos after 1 hour
+1.  **Next.js Application** (Frontend & Backend API): Contained in [ShotVision](https://github.com/bxlyy/shotvision).
+2.  **Python Model API**: Contained in this repository.
 
-## Technology Stack
+For the full application pipeline to work, both of these repositories need to be hosted. They can be hosted locally.
 
-- **Computer Vision**: MediaPipe Pose for body landmark detection
-- **Analysis**: Custom biomechanical algorithms for swing analysis
-- **API**: Flask REST API with CORS support
-- **Video Processing**: OpenCV for video I/O and annotation
+This GitHub has 2 branches:
 
-## Installation
+- `main`
+- `locally-working-commit`
 
-### Prerequisites
-
-- Python 3.8 or higher
-- pip package manager
-- 2GB+ free disk space (for videos and MediaPipe models)
+Use `main` if you are testing on a MacOS machine.
+Use `locally-working-commit` if you are testing on a Windows machine.
+Each branch contains a slightly different version of the model optimized for the specific operating system, as they do not work interchangeably on different operating systems.
 
 ### Steps
 
 1. **Create virtual environment** (if not already created)
+
    ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
 2. **Install dependencies**
+
    ```bash
    pip install -r requirements.txt
    ```
 
 3. **Create required directories**
+
    ```bash
    mkdir -p uploads results test_results
    ```
+
+4. **Create `.env`**
+
+   Next, you must have a necessary `.env` file. Create a `.env` file in the root directory. Please contact (bryanly@g.ucla.edu) for the contents, or see the Google Doc linked in our submission.
 
 ## Quick Start
 
@@ -84,6 +82,7 @@ Base URL: `http://localhost:5001`
 Upload and analyze a tennis swing video.
 
 **Request:**
+
 ```bash
 curl -X POST http://localhost:5001/api/analyze \
   -F "video=@my_swing.mp4" \
@@ -92,6 +91,7 @@ curl -X POST http://localhost:5001/api/analyze \
 ```
 
 **Parameters:**
+
 - `video` (file, required): Video file (mp4, mov, avi, mkv, webm)
 - `kinematic_chain_mode` (bool): Use kinematic chain analysis (default: true)
 - `contact_detection_method` (string): 'velocity_peak', 'kinematic_chain', or 'hybrid' (default: 'kinematic_chain')
@@ -100,6 +100,7 @@ curl -X POST http://localhost:5001/api/analyze \
 - `contact_angle_min` (int): Minimum elbow angle at contact (default: 120)
 
 **Response (200 OK):**
+
 ```json
 {
   "video_id": "550e8400-e29b-41d4-a716-446655440000",
@@ -139,6 +140,7 @@ curl -X POST http://localhost:5001/api/analyze \
 Stream the annotated video for browser playback.
 
 **Request:**
+
 ```bash
 curl http://localhost:5001/api/video/550e8400-e29b-41d4-a716-446655440000
 ```
@@ -148,6 +150,7 @@ curl http://localhost:5001/api/video/550e8400-e29b-41d4-a716-446655440000
 Download the annotated video file.
 
 **Request:**
+
 ```bash
 curl -O http://localhost:5001/api/download/550e8400-e29b-41d4-a716-446655440000
 ```
@@ -157,11 +160,13 @@ curl -O http://localhost:5001/api/download/550e8400-e29b-41d4-a716-446655440000
 Health check endpoint.
 
 **Request:**
+
 ```bash
 curl http://localhost:5001/api/health
 ```
 
 **Response:**
+
 ```json
 {
   "status": "healthy",
@@ -227,6 +232,7 @@ export MAX_VIDEO_SIZE_MB=100
 ## Testing
 
 ### Run Unit Tests
+
 ```bash
 # Test swing analyzer
 python tests/test_swing_analyzer.py
@@ -236,6 +242,7 @@ python tests/test_integration.py
 ```
 
 ### Run Full Pipeline Test
+
 ```bash
 # Tests all videos with complete validation
 python test_api_flow.py
@@ -246,21 +253,25 @@ See [TEST_API_FLOW_README.md](TEST_API_FLOW_README.md) for detailed testing docu
 ## Troubleshooting
 
 ### "No pose detected"
+
 - Ensure player is fully visible in frame
 - Check video quality and lighting
 - Try using `PRESET_DIFFICULT_VIDEO` configuration
 
 ### "Contact not detected"
+
 - Adjust `contact_angle_min` parameter (lower for bent arm shots)
 - Try `contact_detection_method=hybrid` for better detection
 - Ensure swing has clear acceleration and contact point
 
 ### "File too large"
+
 - Default max size is 100MB
 - Increase with `MAX_VIDEO_SIZE_MB` environment variable
 - Or compress video before uploading
 
 ### API not responding
+
 - Check if server is running: `curl http://localhost:5001/api/health`
 - Verify port 5001 is not in use
 - Check logs for errors
