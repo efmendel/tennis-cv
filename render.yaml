@@ -1,7 +1,7 @@
 services:
   - type: web
     name: tennis-swing-ai-worker
-    env: python
+    env: docker
     region: oregon
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn api:app --bind 0.0.0.0:$PORT --workers 2 --timeout 300 --worker-class sync
