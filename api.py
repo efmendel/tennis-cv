@@ -13,6 +13,8 @@ import requests
 from botocore.config import Config
 from flask import Flask, jsonify, request
 from werkzeug.utils import secure_filename
+import tempfile
+import subprocess
 
 # Import your existing modules
 from swing_analyzer import SwingAnalyzer
@@ -23,8 +25,10 @@ app = Flask(__name__)
 
 # --- CONFIGURATION ---
 # Local temporary storage (Render wipes this on restart, which is fine for temp processing)
-UPLOAD_FOLDER = "/tmp/uploads"
-RESULTS_FOLDER = "/tmp/results"
+TEMP_DIR = tempfile.gettempdir()
+UPLOAD_FOLDER = os.path.join(TEMP_DIR, "shotvision_uploads")
+RESULTS_FOLDER = os.path.join(TEMP_DIR, "shotvision_results")
+
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(RESULTS_FOLDER, exist_ok=True)
 
@@ -89,13 +93,36 @@ def process_and_callback(video_id, download_url, raw_key, user_id):
         )
         results = analyzer.analyze_swing(video_data)
 
-        # 3. Create Annotated Video
-        print(f"[{video_id}] Rendering output video...")
+        # 3. Create Annotated Video (Temp file with mp4v)
+        temp_output_path = os.path.join(RESULTS_FOLDER, f"{video_id}_temp.mp4")
+        
+        # NOTE: Make sure your visualize_swing_phases uses 'mp4v' as the codec now
         visualize_swing_phases(
-            video_path=local_input_path,
-            analysis_results=results,
-            output_path=local_output_path,
+            video_path=local_input_path, 
+            analysis_results=results, 
+            output_path=temp_output_path 
         )
+
+        # 3b. Convert to Web-Ready H.264 using FFmpeg
+        print(f"[{video_id}] Converting to H.264 for Web...")
+        
+        # This command reads the temp file and re-encodes it to H.264
+        # -y overwrites output, -vcodec libx264 ensures browser compatibility
+        # -crf 23 is a good balance of quality vs size
+        ffmpeg_cmd = [
+            'ffmpeg', '-y', 
+            '-i', temp_output_path,
+            '-vcodec', 'libx264',
+            '-f', 'mp4',
+            local_output_path
+        ]
+        
+        # Run the command
+        subprocess.run(ffmpeg_cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        # Clean up the non-web-ready temp file
+        if os.path.exists(temp_output_path):
+            os.remove(temp_output_path)
 
         # --- SAFETY CHECK: Ensure video actually exists and is not empty ---
         if not os.path.exists(local_output_path):

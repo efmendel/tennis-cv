@@ -1,4 +1,5 @@
 import json
+import platform
 
 import cv2  # pylint: disable=no-member
 import mediapipe as mp
@@ -75,7 +76,13 @@ def visualize_swing_phases(
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
     # Create video writer
-    fourcc = cv2.VideoWriter_fourcc(*"avc1")
+    if platform.system() == 'Windows':
+        # 'mp4v' is much more reliable on Windows than 'avc1'
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    else:
+        # macOS/Linux usually prefers avc1
+        fourcc = cv2.VideoWriter_fourcc(*'avc1')
+
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
     # MediaPipe for drawing skeleton
