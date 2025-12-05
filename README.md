@@ -11,12 +11,10 @@ For the full application pipeline to work, both of these repositories need to be
 
 This GitHub has 2 branches:
 
-- `main`
-- `locally-working-commit`
+- **`main`**: Use this branch if you are testing on a **macOS** machine.
+- **`locally-working-commit`**: Use this branch if you are testing on a **Windows** machine.
 
-Use `main` if you are testing on a MacOS machine.
-Use `locally-working-commit` if you are testing on a Windows machine.
-Each branch contains a slightly different version of the model optimized for the specific operating system, as they do not work interchangeably on different operating systems.
+Each branch contains a slightly different version of the model optimized for the specific operating system, as they do not work interchangeably on different operating systems. Please use the branch corresponding with your OS.
 
 ### Steps
 
