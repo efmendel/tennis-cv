@@ -15,6 +15,7 @@ from flask import Flask, jsonify, request
 from werkzeug.utils import secure_filename
 import tempfile
 import subprocess
+import platform
 
 # Import your existing modules
 from swing_analyzer import SwingAnalyzer
@@ -94,35 +95,54 @@ def process_and_callback(video_id, download_url, raw_key, user_id):
         results = analyzer.analyze_swing(video_data)
 
         # 3. Create Annotated Video (Temp file with mp4v)
-        temp_output_path = os.path.join(RESULTS_FOLDER, f"{video_id}_temp.mp4")
-        
-        # NOTE: Make sure your visualize_swing_phases uses 'mp4v' as the codec now
-        visualize_swing_phases(
-            video_path=local_input_path, 
-            analysis_results=results, 
-            output_path=temp_output_path 
-        )
 
-        # 3b. Convert to Web-Ready H.264 using FFmpeg
-        print(f"[{video_id}] Converting to H.264 for Web...")
-        
-        # This command reads the temp file and re-encodes it to H.264
-        # -y overwrites output, -vcodec libx264 ensures browser compatibility
-        # -crf 23 is a good balance of quality vs size
-        ffmpeg_cmd = [
-            'ffmpeg', '-y', 
-            '-i', temp_output_path,
-            '-vcodec', 'libx264',
-            '-f', 'mp4',
-            local_output_path
-        ]
-        
-        # Run the command
-        subprocess.run(ffmpeg_cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        
-        # Clean up the non-web-ready temp file
-        if os.path.exists(temp_output_path):
-            os.remove(temp_output_path)
+        system_os = platform.system()
+
+        if system_os == "Windows":
+            print(f"[{video_id}] Detected OS: Windows")
+            temp_output_path = os.path.join(RESULTS_FOLDER, f"{video_id}_temp.mp4")
+
+            # NOTE: Make sure your visualize_swing_phases uses 'mp4v' as the codec now
+            visualize_swing_phases(
+                video_path=local_input_path,
+                analysis_results=results,
+                output_path=temp_output_path,
+            )
+
+            # 3b. Convert to Web-Ready H.264 using FFmpeg
+            print(f"[{video_id}] Converting to H.264 for Web...")
+
+            # This command reads the temp file and re-encodes it to H.264
+            # -y overwrites output, -vcodec libx264 ensures browser compatibility
+            # -crf 23 is a good balance of quality vs size
+            ffmpeg_cmd = [
+                "ffmpeg",
+                "-y",
+                "-i",
+                temp_output_path,
+                "-vcodec",
+                "libx264",
+                "-f",
+                "mp4",
+                local_output_path,
+            ]
+
+            # Run the command
+            subprocess.run(
+                ffmpeg_cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+
+            # Clean up the non-web-ready temp file
+            if os.path.exists(temp_output_path):
+                os.remove(temp_output_path)
+            
+        elif system_os == "Darwin":
+            print(f"[{video_id}] Detected OS: macOS")
+            visualize_swing_phases(
+                video_path=local_input_path,
+                analysis_results=results,
+                output_path=local_output_path,
+            )
 
         # --- SAFETY CHECK: Ensure video actually exists and is not empty ---
         if not os.path.exists(local_output_path):
