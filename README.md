@@ -14,6 +14,20 @@ This is a **microservice worker** designed to be called by the Next.js frontend 
 5. Worker sends webhook callback to Next.js with analysis results
 6. Next.js updates MongoDB with completed analysis
 
+This Python model is a part of the ShotVision application, which has these 2 parts:
+
+1. **Next.js Application** (Frontend & Backend API): Contained in [ShotVision](https://github.com/bxlyy/shotvision).
+2. **Python Model API**: Contained in this repository.
+
+For the full application pipeline to work, both of these repositories need to be hosted. They can be hosted locally.
+
+This GitHub has 2 branches:
+
+- **`main`**: Use this branch if you are testing on a **macOS** machine.
+- **`locally-working-commit`**: Use this branch if you are testing on a **Windows** machine.
+
+Each branch contains a slightly different version of the model optimized for the specific operating system, as they do not work interchangeably on different operating systems. Please use the branch corresponding with your OS.
+
 ## Features
 
 - **Swing Phase Detection**: Automatically identifies 5 key phases (unit turn, backswing, forward swing, contact, follow through)
@@ -45,20 +59,24 @@ This is a **microservice worker** designed to be called by the Next.js frontend 
 
 ### Local Development Setup
 
-1. **Create virtual environment**
+1. **Create virtual environment** (if not already created)
+
    ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
 2. **Install dependencies**
+
    ```bash
    pip install -r requirements.txt
    ```
 
 3. **Configure environment variables**
 
-   Create a `.env` file:
+   Create a `.env` file in the root directory. Add the variables contained in this document: [.env variables](https://docs.google.com/document/d/1EEhCrxg5U8kV-6IXnu2_qylEWbUcVoZ1nh65zVFH-VE/edit?usp=sharing).
+
+   Example `.env` file:
    ```bash
    B2_BUCKET_NAME=your-bucket-name
    B2_ENDPOINT=https://s3.us-west-004.backblazeb2.com
@@ -85,11 +103,13 @@ The worker exposes only 3 endpoints:
 Health check endpoint for monitoring.
 
 **Request:**
+
 ```bash
 curl http://localhost:5001/health
 ```
 
 **Response:**
+
 ```json
 {
   "status": "healthy",
@@ -310,27 +330,32 @@ See [TEST_API_FLOW_README.md](TEST_API_FLOW_README.md) for detailed testing docu
 ## Troubleshooting
 
 ### "No pose detected"
+
 - Ensure player is fully visible in frame
 - Check video quality and lighting
 - Algorithm uses `PRESET_DIFFICULT_VIDEO` configuration for robustness
 
 ### "Contact not detected"
+
 - Check that swing has clear acceleration and deceleration
 - Ensure elbow extension is visible at contact point
 - Kinematic chain mode provides better detection than velocity-only
 
 ### "Output video is too small" / Encoding errors
+
 - FFmpeg and codecs are required (included in Docker image)
 - For local dev, ensure FFmpeg is installed: `brew install ffmpeg` (macOS)
 - Video encoding uses H.264 (avc1) codec
 
 ### Worker not responding
+
 - Check if server is running: `curl http://localhost:5001/health`
 - Verify port 5001 is not in use: `lsof -i :5001`
 - Check logs for errors
 - Verify B2 credentials are correct
 
 ### Webhook not received by Next.js
+
 - Confirm `NEXT_WEBHOOK_URL` is correct
 - Verify `AI_SERVICE_SECRET` matches between services
 - Check Next.js logs for incoming webhook requests
